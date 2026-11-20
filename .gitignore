@@ -1,0 +1,21 @@
+# Local secrets and connection settings
+.env
+.env.*
+!.env.example
+secrets/
+credentials/
+config/local.*
+
+# Tenant extracts and generated results
+data/raw/
+data/private/
+exports/
+*.pbix
+*.abf
+*.log
+
+# Local tooling
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+.pbi/
