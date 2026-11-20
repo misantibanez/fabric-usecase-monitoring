@@ -7,12 +7,12 @@ row counts, freshness and coverage have NOT been validated.
 All live findings must stay outside this public repository; publish only
 sanitized summaries and synthetic examples.
 
-An initial read-only workspace metadata lookup and Lakehouse listing returned
-HTTP 404 through the available Fabric connection. This does not establish that
-the workspace is absent: caller access or account/tenant context may differ.
-The Fabric notebook extension returned no selected-workspace information.
-No table queries were executed. Live validation is blocked until the correct
-connection context and workspace read access are confirmed.
+The initial connection returned HTTP 404 for workspace metadata and Lakehouse
+listing. A separate read-only MCP connection now uses an isolated CLI identity
+profile. Its saved configuration passed MCP initialization, tool discovery and
+a workspace metadata call with HTTP 200. Workspace access is confirmed; Lakehouse
+listing, schemas and table coverage remain pending. No table queries have been
+executed. The original extension connection is unchanged.
 
 The upstream links below identify the corresponding source files. Upstream main
 can change; capture the deployed FUAM version when performing live validation.
