@@ -53,27 +53,39 @@ and blocking gaps; presence alone does not pass source validation.
 ## Sanitized live findings
 
 - Required classification, metric and inventory table names exist.
-- Workspace tag associations and the tag catalog are empty in the queried
-  deployment. Current workspace metadata exposes tags, so the empty tables
-  cannot be treated as proof that no Fabric tags are configured.
+- After the user reran FUAM, workspace tag associations and the tag catalog are
+  populated. Read-only checks found no orphaned workspace/tag associations,
+  missing tag-catalog matches, duplicate workspace/tag pairs or unresolved
+  nonempty workspace domain IDs in the queried data.
 - Capacity and workspace history tables exist but are empty.
 - The general active-item inventory is populated. The queried Lakehouse,
   Notebook, DataPipeline and Environment scanner tables are empty; this is an
-  extraction/coverage gap to investigate, not proof that those items do not
-  exist.
-- Workspace/capacity extraction timestamps and metric dates are stale.
-- Timepoint data covers only scattered dates/intervals. It cannot establish
-  complete active capacity availability for a billing period.
+  scanner-specific coverage gap, not proof that those items do not exist. The
+  general inventory includes Lakehouse, Notebook, DataPipeline, Environment and
+  VariableLibrary records, with workspace identity and deletion flags. It is a
+  viable candidate for MVP inventory without requiring the scanner tables to be
+  populated first; item uniqueness, join coverage and historical completeness
+  still need validation.
+- Workspace/capacity extraction timestamps are current after the rerun.
+- Item-operation metrics now include recent records and resolve to known
+  workspaces. This confirms ingestion progress, not continuous usage coverage.
+- Timepoint metrics did not advance after the rerun and remain stale, with only
+  scattered dates/intervals. They cannot establish complete active capacity
+  availability for a current billing period.
 - No duplicate groups were found for `(CapacityId, TimePoint)` or the candidate
   `(CapacityId, WorkspaceId, ItemId, ItemKind, OperationName, Date)` key in the
   queried metrics. This does not establish completeness.
-- Summed item-operation CU consumption differs from summed timepoint
-  consumption. Smoothing, date boundaries and missing intervals must be
-  reconciled; no billing percentage is approved from this comparison.
+- Item-operation and timepoint metric coverage windows now differ. Their
+  unfiltered totals are not a meaningful reconciliation. Compare identical
+  covered windows and account for smoothing/date boundaries; no billing
+  percentage is approved from the current comparison.
 
 Detailed tenant counts, dates and usage totals are not published here.
-Source validation remains open. Next: inspect deployed orchestration parameters,
-recent run history and refresh configuration before proposing targeted refreshes.
+Source validation remains open. The rerun resolved the empty classification and
+stale workspace/capacity metadata findings from the initial check. Next: inspect
+the deployed timepoint extraction parameters, run history and refresh
+configuration, and validate the general inventory joins. Do not rerun all of
+FUAM solely because scanner-specific tables remain empty.
 The local scanner supports `extract_powerbi_artifacts_only` and
 `has_tenant_domains`; their deployed values and actual run behavior are unverified.
 
@@ -85,8 +97,10 @@ freshness, candidate-key duplicates and timepoint distribution without exposing
 item names, workspace IDs or users. Its results still describe tenant usage and
 must stay private.
 
-The script executed successfully and returned all six result sets. It is a
-diagnostic, not a passing acceptance test: empty and stale sources remain blockers.
+The script executed successfully again after the rerun and returned all six
+result sets. Additional read-only checks validated classification joins and
+general inventory type coverage. These are diagnostics, not complete acceptance
+tests: timepoint coverage and historical attribution remain unresolved.
 
 ## Open correctness questions
 

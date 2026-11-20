@@ -93,9 +93,12 @@ the deployed table exists or contains complete data.
 This repository currently contains the approved scope, backlog, a
 [FUAM source contract with sanitized live findings](docs/fuam-source-contract.md)
 and a [read-only validation script](scripts/validate_fuam_sources.sql).
-Live diagnostics identified empty classification/history/scanner tables and
-stale, incomplete metrics. Source validation remains open; no billing percentage
-is approved from the current data.
+After FUAM was rerun, classification tables and workspace/capacity metadata are
+populated and refreshed, and item-operation metrics include recent data.
+The general inventory includes the requested item types, including Variable
+Library. Timepoint metrics remain stale/incomplete, history tables remain empty,
+and scanner-specific inventory tables remain empty. Source validation remains
+open; no billing percentage is approved from the current data.
 There is not yet a deployed semantic model, ingestion pipeline or Power BI report.
 
 ## Upstream references
