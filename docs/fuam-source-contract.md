@@ -2,22 +2,29 @@
 
 ## Evidence status
 
-Initial review: local FUAM source definitions only. Deployed schemas, permissions,
-row counts, freshness and coverage have NOT been validated.
+Initial local review has been followed by read-only live validation of Lakehouse
+discovery, table discovery, selected schemas, aggregate counts, freshness and
+candidate metric-key uniqueness. Billing eligibility, historical attribution and
+complete denominator coverage have NOT been validated.
 All live findings must stay outside this public repository; publish only
 sanitized summaries and synthetic examples.
 
-The initial connection returned HTTP 404 for workspace metadata and Lakehouse
-listing. A separate read-only MCP connection now uses an isolated CLI identity
-profile. Its saved configuration passed MCP initialization, tool discovery and
-a workspace metadata call with HTTP 200. Workspace access is confirmed; Lakehouse
-listing, schemas and table coverage remain pending. No table queries have been
-executed. The original extension connection is unchanged.
+The separate Fabric Monitoring MCP connection confirmed workspace/Lakehouse
+discovery and table metadata through stable IDs under namespace `dbo`.
+Friendly-name namespace discovery failed; ID-based discovery succeeded.
+The independent SQL endpoint MCP tool returned a resource-not-found error for
+both Lakehouse and SQL endpoint identifiers. An encrypted SQL connection using
+the isolated CLI profile successfully executed read-only schema and aggregate
+queries. No tokens were printed or persisted in repository files.
 
 The upstream links below identify the corresponding source files. Upstream main
 can change; capture the deployed FUAM version when performing live validation.
 
 ## Candidate sources
+
+The per-source `Pending` entries below refer to full acceptance of that source,
+not initial discovery. The live findings section records completed partial checks
+and blocking gaps; presence alone does not pass source validation.
 
 | Source | Required fields or role | Local evidence | Live validation |
 | --- | --- | --- | --- |
@@ -42,6 +49,44 @@ can change; capture the deployed FUAM version when performing live validation.
 - [Incremental inventory](https://github.com/microsoft/fabric-toolbox/blob/main/monitoring/fabric-unified-admin-monitoring/src/01_Transfer_Incremental_Inventory_Unit.Notebook/notebook-content.ipynb)
 - [Item-operation metrics transfer](https://github.com/microsoft/fabric-toolbox/blob/main/monitoring/fabric-unified-admin-monitoring/src/03_Transfer_CapacityMetricData_ItemOperation_Unit.Notebook/notebook-content.ipynb)
 - [Timepoint metrics transfer](https://github.com/microsoft/fabric-toolbox/blob/main/monitoring/fabric-unified-admin-monitoring/src/01_Transfer_CapacityMetricData_Timepoints_Unit.Notebook/notebook-content.ipynb)
+
+## Sanitized live findings
+
+- Required classification, metric and inventory table names exist.
+- Workspace tag associations and the tag catalog are empty in the queried
+  deployment. Current workspace metadata exposes tags, so the empty tables
+  cannot be treated as proof that no Fabric tags are configured.
+- Capacity and workspace history tables exist but are empty.
+- The general active-item inventory is populated. The queried Lakehouse,
+  Notebook, DataPipeline and Environment scanner tables are empty; this is an
+  extraction/coverage gap to investigate, not proof that those items do not
+  exist.
+- Workspace/capacity extraction timestamps and metric dates are stale.
+- Timepoint data covers only scattered dates/intervals. It cannot establish
+  complete active capacity availability for a billing period.
+- No duplicate groups were found for `(CapacityId, TimePoint)` or the candidate
+  `(CapacityId, WorkspaceId, ItemId, ItemKind, OperationName, Date)` key in the
+  queried metrics. This does not establish completeness.
+- Summed item-operation CU consumption differs from summed timepoint
+  consumption. Smoothing, date boundaries and missing intervals must be
+  reconciled; no billing percentage is approved from this comparison.
+
+Detailed tenant counts, dates and usage totals are not published here.
+Source validation remains open. Next: inspect deployed orchestration parameters,
+recent run history and refresh configuration before proposing targeted refreshes.
+The local scanner supports `extract_powerbi_artifacts_only` and
+`has_tenant_domains`; their deployed values and actual run behavior are unverified.
+
+### Reusable read-only validation
+
+Run [validate_fuam_sources.sql](../scripts/validate_fuam_sources.sql) against the
+FUAM Lakehouse SQL analytics endpoint. It returns aggregate table counts,
+freshness, candidate-key duplicates and timepoint distribution without exposing
+item names, workspace IDs or users. Its results still describe tenant usage and
+must stay private.
+
+The script executed successfully and returned all six result sets. It is a
+diagnostic, not a passing acceptance test: empty and stale sources remain blockers.
 
 ## Open correctness questions
 
@@ -81,5 +126,5 @@ can change; capture the deployed FUAM version when performing live validation.
 - Record unresolved gaps explicitly; source validation remains open until these
   checks pass or an approved scope limitation is documented.
 
-There are no executable project tests yet. This initial change is documentation
-only; no deployed data checks or report validations have been run.
+There are no automated project tests or report validations yet. Live schema and
+aggregate diagnostics have run; the report and its percentages are not deployed.

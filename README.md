@@ -90,9 +90,13 @@ the deployed table exists or contains complete data.
 
 ## Current implementation status
 
-This repository currently contains the approved scope, backlog and an initial
-[FUAM source contract](docs/fuam-source-contract.md). It does not yet contain a
-deployed semantic model, ingestion pipeline or Power BI report.
+This repository currently contains the approved scope, backlog, a
+[FUAM source contract with sanitized live findings](docs/fuam-source-contract.md)
+and a [read-only validation script](scripts/validate_fuam_sources.sql).
+Live diagnostics identified empty classification/history/scanner tables and
+stale, incomplete metrics. Source validation remains open; no billing percentage
+is approved from the current data.
+There is not yet a deployed semantic model, ingestion pipeline or Power BI report.
 
 ## Upstream references
 
