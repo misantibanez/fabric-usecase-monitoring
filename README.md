@@ -96,9 +96,12 @@ and a [read-only validation script](scripts/validate_fuam_sources.sql).
 After FUAM was rerun, classification tables and workspace/capacity metadata are
 populated and refreshed, and item-operation metrics include recent data.
 The general inventory includes the requested item types, including Variable
-Library. Timepoint metrics remain stale/incomplete, history tables remain empty,
-and scanner-specific inventory tables remain empty. Source validation remains
-open; no billing percentage is approved from the current data.
+Library. A stale Capacity Metrics source model blocked recent timepoint extraction.
+After the user refreshed it and approved a targeted timepoint notebook run, recent
+timepoints were verified in the Lakehouse SQL endpoint without duplicate keys.
+Timepoint coverage remains incomplete, history tables remain empty, and
+scanner-specific inventory tables remain empty. Source validation remains open;
+no billing percentage is approved from the current data.
 There is not yet a deployed semantic model, ingestion pipeline or Power BI report.
 
 ## Upstream references

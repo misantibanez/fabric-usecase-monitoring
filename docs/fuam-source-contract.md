@@ -69,9 +69,21 @@ and blocking gaps; presence alone does not pass source validation.
 - Workspace/capacity extraction timestamps are current after the rerun.
 - Item-operation metrics now include recent records and resolve to known
   workspaces. This confirms ingestion progress, not continuous usage coverage.
-- Timepoint metrics did not advance after the rerun and remain stale, with only
-  scattered dates/intervals. They cannot establish complete active capacity
-  availability for a current billing period.
+- Timepoint metrics initially did not advance after the rerun. The source
+  Capacity Metrics semantic model had stale calendars and refresh history
+  reported `ModelRefreshDisabled`. A current-period query returned no rows.
+  After the user refreshed that model, its calendars advanced and the deployed
+  timepoint measure query returned recent data.
+- With explicit approval, only the timepoint notebook was submitted once, for a
+  three-day scope with explicit source workspace/model parameters and display
+  disabled. Its job completed without a reported failure or error exit value.
+  OneLake metadata confirmed persisted table changes; SQL initially showed the
+  earlier snapshot, then reflected recent timepoints after synchronization.
+  No notebook code, full-pipeline execution or refresh schedule was changed.
+- Recovered timepoints still cover only scattered measured intervals. Calendar
+  rows are not evidence of measured availability, and missing intervals do not
+  prove inactivity or a pause. Complete active capacity availability for a
+  billing period remains unvalidated.
 - No duplicate groups were found for `(CapacityId, TimePoint)` or the candidate
   `(CapacityId, WorkspaceId, ItemId, ItemKind, OperationName, Date)` key in the
   queried metrics. This does not establish completeness.
@@ -82,9 +94,12 @@ and blocking gaps; presence alone does not pass source validation.
 
 Detailed tenant counts, dates and usage totals are not published here.
 Source validation remains open. The rerun resolved the empty classification and
-stale workspace/capacity metadata findings from the initial check. Next: inspect
-the deployed timepoint extraction parameters, run history and refresh
-configuration, and validate the general inventory joins. Do not rerun all of
+stale workspace/capacity metadata findings from the initial check. Source refresh
+and targeted extraction restored recent timepoints, but did not establish a
+complete denominator. Next: validate zero-usage/active-interval coverage, the
+general inventory joins and ongoing source-refresh health. Standalone notebook
+and child-pipeline defaults differ from the master pipeline's source parameters;
+always supply the verified source explicitly for directed runs. Do not rerun all of
 FUAM solely because scanner-specific tables remain empty.
 The local scanner supports `extract_powerbi_artifacts_only` and
 `has_tenant_domains`; their deployed values and actual run behavior are unverified.
@@ -100,7 +115,10 @@ must stay private.
 The script executed successfully again after the rerun and returned all six
 result sets. Additional read-only checks validated classification joins and
 general inventory type coverage. These are diagnostics, not complete acceptance
-tests: timepoint coverage and historical attribution remain unresolved.
+tests: timepoint coverage and historical attribution remain unresolved. Following
+the targeted run, read-only SQL confirmed recent persisted timepoints and no
+duplicate `(CapacityId, TimePoint)` groups. This checks recovery and uniqueness,
+not billing eligibility.
 
 ## Open correctness questions
 
