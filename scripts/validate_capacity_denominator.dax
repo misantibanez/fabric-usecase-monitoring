@@ -1,0 +1,62 @@
+-- Read-only diagnostic against the Capacity Metrics source semantic model.
+-- Replace <CAPACITY_ID>, <YEAR>, <MONTH> and <DAY> locally before execution.
+-- Results describe tenant usage and must not be published.
+DEFINE
+    MPARAMETER 'CapacitiesList' = {"<CAPACITY_ID>"}
+    VAR ScopedCapacity = "<CAPACITY_ID>"
+    VAR ScopedDate = DATE(<YEAR>, <MONTH>, <DAY>)
+    -- Dates filters measures; explicitly bound the calendar as well.
+    VAR Grid =
+        SUMMARIZECOLUMNS(
+            'Timepoints'[Timepoint],
+            FILTER(
+                ALL('Timepoints'[Timepoint]),
+                'Timepoints'[Timepoint] >= ScopedDate
+                    && 'Timepoints'[Timepoint] < ScopedDate + 1
+            ),
+            TREATAS({ScopedDate}, 'Dates'[Date]),
+            TREATAS({ScopedCapacity}, 'Capacities'[Capacity Id]),
+            "CalendarMarker", 1,
+            "Available", 'All Measures'[SKU CU by timepoint],
+            "Consumed", 'All Measures'[Cumulative CU usage (s)]
+        )
+    VAR ReportedGrid = FILTER(Grid, NOT ISBLANK([Available]))
+    VAR LifecycleEvents =
+        FILTER(
+            'System Events',
+            'System Events'[Capacity Id] = ScopedCapacity
+                && 'System Events'[Capacity state transition time] >= ScopedDate
+                && 'System Events'[Capacity state transition time] < ScopedDate + 1
+                && 'System Events'[Capacity state change reason]
+                    IN {"Created", "ManuallyResumed", "ManuallyPaused", "Deleted"}
+        )
+EVALUATE
+    ROW(
+        "MetricDate", ScopedDate,
+        "SourceCapacityMatches",
+            COALESCE(
+                CALCULATE(
+                    COUNTROWS('Capacities'),
+                    TREATAS({ScopedCapacity}, 'Capacities'[Capacity Id])
+                ),
+                0
+            ),
+        "CalendarIntervals", COALESCE(COUNTROWS(Grid), 0),
+        "ExpectedCalendarIntervals", 2880,
+        "ReportedAvailabilityIntervals", COALESCE(COUNTROWS(ReportedGrid), 0),
+        "NoReportedAvailabilityIntervals",
+            COALESCE(COUNTROWS(FILTER(Grid, ISBLANK([Available]))), 0),
+        "ReportedAvailabilityWithBlankConsumption",
+            COALESCE(COUNTROWS(FILTER(ReportedGrid, ISBLANK([Consumed]))), 0),
+        "ReportedAvailabilityWithZeroConsumption",
+            COALESCE(
+                COUNTROWS(
+                    FILTER(ReportedGrid, NOT ISBLANK([Consumed]) && [Consumed] = 0)
+                ),
+                0
+            ),
+        "MinReportedAvailableCUs", MINX(ReportedGrid, [Available]),
+        "MaxReportedAvailableCUs", MAXX(ReportedGrid, [Available]),
+        "ReportedAvailableCUs", SUMX(ReportedGrid, [Available]),
+        "LifecycleEventsInDay", COALESCE(COUNTROWS(LifecycleEvents), 0)
+    )

@@ -57,6 +57,9 @@ invoice. Invoice values are not collected by the MVP.
   use-case, workspace, domain or item filters.
 - SKU changes and active intervals require historical evidence.
 - Missing telemetry is not zero consumption or a confirmed pause.
+- Capacity Metrics excludes active timepoints not reporting usage from its
+  average utilization. Reported timepoint availability alone is not a complete
+  billing denominator; validated lifecycle/SKU history is required.
 - Unconsumed capacity is not automatically redistributed to teams.
 - Consumption without a classified use case remains visible.
 - Usage above 100% is shown without clipping; its billing treatment requires a
@@ -102,6 +105,11 @@ timepoints were verified in the Lakehouse SQL endpoint without duplicate keys.
 Timepoint coverage remains incomplete, history tables remain empty, and
 scanner-specific inventory tables remain empty. Source validation remains open;
 no billing percentage is approved from the current data.
+Read-only denominator probes confirmed sparse reported availability despite a
+complete daily calendar. Fabric exposes lifecycle events, but FUAM does not yet
+persist the event history and state/SKU baseline needed to validate active
+intervals. The source contract describes that Fabric-only extension and includes
+a [reusable denominator diagnostic](scripts/validate_capacity_denominator.dax).
 There is not yet a deployed semantic model, ingestion pipeline or Power BI report.
 
 ## Upstream references

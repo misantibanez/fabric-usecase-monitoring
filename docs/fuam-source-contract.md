@@ -120,11 +120,85 @@ the targeted run, read-only SQL confirmed recent persisted timepoints and no
 duplicate `(CapacityId, TimePoint)` groups. This checks recovery and uniqueness,
 not billing eligibility.
 
+### Denominator validation
+
+The [Capacity Metrics compute-page documentation](https://learn.microsoft.com/en-us/fabric/enterprise/metrics-app-compute-page#cards)
+explicitly excludes both paused timepoints and active timepoints not reporting
+usage from its average utilization. Summing reported `SKUCUByTimePoint` therefore
+does not necessarily yield all capacity available while active. Do not use that
+sum as the billing denominator without independent active-interval coverage.
+
+Read-only probes of the deployed source model confirmed:
+
+- Its calendar has a full day's 30-second slots, while availability measures
+  populate only a subset. A tested day had no reported availability at all.
+  These blanks remain unknown, not zero capacity or confirmed inactivity.
+- A native detail sample exposed base CU units, SKU and 30-second start/end
+  windows. Its reported availability agrees with base CU multiplied by window
+  seconds. The timepoint availability is already in CU seconds; do not multiply
+  it by 30 again. This validates the sample, not every historical SKU or interval.
+- A `System Events` DirectQuery table exposes capacity identity, state, state
+  change reason and transition time. No events were returned for the pilot in
+  the queried recent window. Current capacity state alone cannot establish its
+  state at the beginning of a historical billing period.
+- FUAM has no discovered system-event table, and its capacity history table is
+  empty. Its history schema includes a snapshot date, not a verified ledger of
+  exact transition times.
+- Source measure expressions were not exposed by the metadata query. A complex
+  detail aggregation failed with a DirectQuery folding error; a simpler bounded
+  detail query succeeded. The findings rely on returned values and documented
+  semantics, not assumed internal measure definitions.
+
+Run [validate_capacity_denominator.dax](../scripts/validate_capacity_denominator.dax)
+against the Capacity Metrics source model, replacing its capacity/date placeholders
+locally. Execute it as one query through Power BI `executeQueries`, with
+`serializerSettings.includeNulls` enabled. It returns calendar and reported
+availability counts, explicit-zero versus blank consumption counts, reported CU
+seconds and lifecycle-event count. Counts use zero for empty sets; missing CU
+values remain blank. It returns no chargeback percentage.
+The explicit timepoint bounds are essential: filtering `Dates` alone can filter
+the measures without reducing the enumerated timepoint calendar. The expected
+count describes a full source-calendar day, not the number of active intervals.
+Evaluate finalized days; an in-progress day's absent future slots cannot establish
+a telemetry fault.
+The saved DAX diagnostic passed live checks for a partially reported day and a
+day without reported availability: exactly one row with the expected 12 fields,
+2,880 calendar slots and reconciled interval counts. The sampled CU-second sum
+matched its interval count; missing availability remained blank rather than zero.
+
+**Required Fabric-only extension before billing:**
+
+1. Persist lifecycle events before they age out of the app's documented
+   14-day compute window, with extraction success, query window and source
+   freshness evidence. An empty event result is not an initial-state anchor.
+2. Establish an effective-dated state/SKU baseline and preserve subsequent
+   observations. Sampled snapshots do not locate an intervening pause or SKU
+   change precisely; unresolved transition intervals remain unvalidated.
+3. Use lifecycle reasons `Created`, `ManuallyResumed`, `ManuallyPaused` and
+   `Deleted` to distinguish existence/availability from performance state.
+   Throttled or overloaded does not mean paused. In particular, an
+   `Active / NotOverloaded` event after suspension does not prove resumption;
+   this exception is documented in
+   [Monitor a paused capacity](https://learn.microsoft.com/en-us/fabric/enterprise/monitor-paused-capacity#considerations-and-limitations).
+4. Calculate available CU seconds from validated active intervals and their
+   effective SKU, including active intervals with confirmed zero consumption.
+   Do not infer zero consumption merely from an absent metric row.
+5. Keep operational reported utilization separate from billing eligibility.
+   Unknown initial state, incomplete event/usage coverage or unresolved SKU
+   changes block the billing percentage, while observed consumption remains
+   visible. Historical periods before the baseline cannot be reconstructed
+   merely by starting future collection.
+
+Inventory establishes observed existence, not the original creation timestamp.
+Expose creation time only when a `Created` event or another verified Fabric
+source supplies it; otherwise distinguish first observed time from creation time.
+No historical collector or Fabric configuration was deployed in this validation.
+
 ## Open correctness questions
 
 1. Confirm the actual item-operation grain and deduplication key.
-2. Verify that `TotalCUs` and `SKUCUByTimePoint` have compatible CU-second units,
-   including whether the timepoint duration is already included.
+2. Sampled availability units are validated above. Confirm numerator units and
+   historical SKU/window consistency before reconciliation.
 3. Check which usage is billable/non-billable and choose the numerator explicitly.
 4. Reconcile operation-date consumption against smoothed timepoint consumption
    over identical windows. Do not claim equivalence across period boundaries
