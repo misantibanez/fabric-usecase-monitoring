@@ -192,7 +192,10 @@ matched its interval count; missing availability remained blank rather than zero
 Inventory establishes observed existence, not the original creation timestamp.
 Expose creation time only when a `Created` event or another verified Fabric
 source supplies it; otherwise distinguish first observed time from creation time.
-No historical collector or Fabric configuration was deployed in this validation.
+The subsequent [capacity-history collector pilot](capacity-history.md) deployed
+an independent Lakehouse/notebook and verified its first persisted observations.
+FUAM and source-model configuration were not changed. No recurring schedule is
+enabled, and this prospective anchor does not validate earlier billing periods.
 
 ## Open correctness questions
 
@@ -232,5 +235,5 @@ No historical collector or Fabric configuration was deployed in this validation.
 - Record unresolved gaps explicitly; source validation remains open until these
   checks pass or an approved scope limitation is documented.
 
-There are no automated project tests or report validations yet. Live schema and
-aggregate diagnostics have run; the report and its percentages are not deployed.
+Collector unit tests and live schema/aggregate diagnostics have run. There are
+no report validations yet; the report and its percentages are not deployed.

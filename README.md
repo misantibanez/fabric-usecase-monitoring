@@ -110,7 +110,12 @@ complete daily calendar. Fabric exposes lifecycle events, but FUAM does not yet
 persist the event history and state/SKU baseline needed to validate active
 intervals. The source contract describes that Fabric-only extension and includes
 a [reusable denominator diagnostic](scripts/validate_capacity_denominator.dax).
-There is not yet a deployed semantic model, ingestion pipeline or Power BI report.
+An [independent capacity-history collector](docs/capacity-history.md) is now
+deployed and its first manual pilot verified: snapshots, raw system events and
+run evidence are stored in a separate Lakehouse without changing FUAM.
+This starts prospective history; it does not establish past billing availability.
+There is not yet a deployed report, independent semantic model or recurring
+ingestion schedule.
 
 ## Upstream references
 
