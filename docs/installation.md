@@ -115,7 +115,13 @@ repairing the pending record. Do not blindly clear it.
 Missing/ambiguous connections stop with `SQL_CONNECTION_REQUIRED`. Configure the
 model connection in **Service > Semantic model settings > Gateway and cloud
 connections**, then rerun with its connection ID. Resources and completed
-collector steps remain intact. Refresh failures stop immediately, retain the
+collector steps remain intact. Binding visibility is checked for up to 60
+seconds without repeating the bind request. An already matching binding is
+reused. If verification times out, inspect model settings and rerun the same
+installed notebook; a binding that has since become visible can be reused.
+Do not replace the package or change the installation prefix to resolve a
+visibility delay.
+Refresh failures stop immediately, retain the
 failed receipt and do not automatically retry credentials. After investigating
 and correcting the failure, an explicitly initiated rerun can try again.
 

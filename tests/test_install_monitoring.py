@@ -1,7 +1,7 @@
 import base64
 import json
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from scripts.build_install_notebook import build_install_notebook, PACKAGE_PATHS
 from scripts.install_monitoring import (
@@ -118,6 +118,43 @@ class InstallerTests(unittest.TestCase):
                 choose_connection([{"connectionDetails": details}], candidates)
         result = choose_connection([{"connectionDetails": details}], [connection], MODEL)
         self.assertEqual(result[0]["connectionBinding"]["id"], MODEL)
+
+    def test_binding_waits_for_visibility_without_repeating_submission(self):
+        installer = self.installer()
+        details = {"type": "SQL", "path": "synthetic;database"}
+        reference = {"connectivityType": "Automatic", "connectionDetails": details}
+        connection = {"id": MODEL, "connectivityType": "ShareableCloud", "connectionDetails": details}
+        installer.api.listing.side_effect = [
+            [reference], [connection], [reference], [connection],
+        ]
+        installer.bind(MODEL)
+        installer.api.request.assert_called_once_with(
+            "POST", f"/workspaces/{WS}/semanticModels/{MODEL}/bindConnection",
+            {"connectionBinding": connection},
+        )
+        installer.api.sleep.assert_called_once_with(5)
+
+    def test_existing_binding_is_verified_without_rebinding(self):
+        installer = self.installer()
+        connection = {"id": MODEL, "connectivityType": "ShareableCloud",
+                      "connectionDetails": {"type": "SQL", "path": "synthetic;database"}}
+        installer.api.listing.side_effect = [[connection], [connection]]
+        installer.bind(MODEL)
+        installer.api.request.assert_not_called()
+        installer.api.sleep.assert_not_called()
+
+    def test_binding_visibility_timeout_does_not_resubmit_or_claim_success(self):
+        installer = self.installer()
+        details = {"type": "SQL", "path": "synthetic;database"}
+        reference = {"connectivityType": "Automatic", "connectionDetails": details}
+        connection = {"id": MODEL, "connectivityType": "ShareableCloud", "connectionDetails": details}
+        installer.api.listing.side_effect = (
+            lambda path: [connection] if path == "/connections" else [reference]
+        )
+        with patch("scripts.install_monitoring.time.monotonic", side_effect=[0, 0, 60]):
+            with self.assertRaisesRegex(RuntimeError, "verification timed out"):
+                installer.bind(MODEL)
+        self.assertEqual(installer.api.request.call_count, 1)
 
     def test_cross_workspace_shortcut_is_reused_but_never_retargeted(self):
         from scripts.install_monitoring import METRIC_SHORTCUT

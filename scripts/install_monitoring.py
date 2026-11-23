@@ -462,13 +462,23 @@ class Installer:
         path = f"/workspaces/{self.workspace}/items/{model_id}/connections"
         references = self.api.listing(path)
         bindings = choose_connection(references, self.api.listing("/connections"), self.config["connection_id"])
-        for binding in bindings:
-            self.api.request("POST", f"/workspaces/{self.workspace}/semanticModels/{model_id}/bindConnection", binding)
-        verified = self.api.listing(path)
         expected = {(row["connectionBinding"]["id"], json.dumps(row["connectionBinding"]["connectionDetails"], sort_keys=True)) for row in bindings}
-        actual = {(row.get("id"), json.dumps(row["connectionDetails"], sort_keys=True)) for row in verified}
-        if not expected <= actual:
-            raise RuntimeError("SQL connection binding verification failed")
+        actual = {(row.get("id"), json.dumps(row["connectionDetails"], sort_keys=True)) for row in references}
+        if expected <= actual:
+            return
+        for binding in bindings:
+            target = binding["connectionBinding"]
+            if (target["id"], json.dumps(target["connectionDetails"], sort_keys=True)) not in actual:
+                self.api.request("POST", f"/workspaces/{self.workspace}/semanticModels/{model_id}/bindConnection", binding)
+        deadline = time.monotonic() + min(self.api.timeout, 60)
+        while True:
+            verified = self.api.listing(path)
+            actual = {(row.get("id"), json.dumps(row["connectionDetails"], sort_keys=True)) for row in verified}
+            if expected <= actual:
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError("SQL connection binding verification timed out; inspect model settings, then rerun to recheck")
+            self.api.sleep(5)
 
     def validate_sql(self, endpoint: dict, database: str) -> None:
         source = "dbo." + METRIC_SHORTCUT
