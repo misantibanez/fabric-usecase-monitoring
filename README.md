@@ -119,6 +119,12 @@ automatic renewal. Its first scheduler-origin execution and additional snapshot
 were verified. Monitor schedule state after capacity pauses and track monitoring
 overhead separately from business activity.
 There is not yet a deployed report or independent semantic model.
+Inventory relationship validation now confirms unique observed keys and stored
+metric/item/workspace matches while retaining items without metrics. Some
+inventory workspaces remain unresolved, and source timestamps lag the check.
+The [inventory diagnostic](scripts/validate_inventory_joins.sql) preserves those
+gaps and raw tag-count statuses without duplicating items. Designated use-case
+tag IDs and historical classification still require approval/implementation.
 
 ## Upstream references
 

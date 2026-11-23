@@ -64,8 +64,9 @@ and blocking gaps; presence alone does not pass source validation.
   general inventory includes Lakehouse, Notebook, DataPipeline, Environment and
   VariableLibrary records, with workspace identity and deletion flags. It is a
   viable candidate for MVP inventory without requiring the scanner tables to be
-  populated first; item uniqueness, join coverage and historical completeness
-  still need validation.
+  populated first. The inventory validation below confirms observed key
+  uniqueness and metric/item matches, but also records unresolved workspaces;
+  historical completeness remains unvalidated.
 - Workspace/capacity extraction timestamps are current after the rerun.
 - Item-operation metrics now include recent records and resolve to known
   workspaces. This confirms ingestion progress, not continuous usage coverage.
@@ -119,6 +120,80 @@ tests: timepoint coverage and historical attribution remain unresolved. Followin
 the targeted run, read-only SQL confirmed recent persisted timepoints and no
 duplicate `(CapacityId, TimePoint)` groups. This checks recovery and uniqueness,
 not billing eligibility.
+
+### Inventory/workspace relationship validation
+
+Run [validate_inventory_joins.sql](../scripts/validate_inventory_joins.sql)
+read-only against the FUAM Lakehouse SQL endpoint. Its seven result sets expose:
+
+1. Validation time, item/workspace extraction timestamps and the selected metric
+   window. The default window ends after the latest **stored** metric date; it
+   is not necessarily the current period or a complete 14-day extraction.
+2. Normalized item/workspace/domain/tag-pair uniqueness and item UUID checks.
+3. Workspace presence/lifecycle and current capacity correspondence, including
+   missing capacity-catalog records.
+4. Inventory by type/deletion flag with and without metrics in the selected
+   window. Metric existence checks use both item and workspace IDs.
+5. All-history and selected-window consumption joins, keeping unmatched facts
+   and facts whose workspace is currently marked deleted.
+6. Observed metric-kind/inventory-type pairs resolved by IDs, not type names.
+7. Workspace-derived domain and raw tag-count status without exploding inventory
+   rows across tags.
+
+The saved diagnostic executed successfully. Seven result sets returned;
+six key checks had no failures, all stored metric rows resolved to their
+inventory item/workspace pair, and the inventory totals reconciled across the
+workspace, consumption-presence and domain/tag summaries without dropping or
+multiplying rows. Items without metric rows remained present. This validates
+the queried snapshot, not full issue acceptance or historical attribution.
+
+**Sanitized findings and implementation rules:**
+
+- General inventory includes Lakehouse, Notebook, DataPipeline, Environment
+  and VariableLibrary, including items with no observed metric rows in the
+  selected window. Do not build the inventory from consumption facts.
+- Some items marked active/not-deleted have no matching FUAM workspace and
+  no matching capacity-catalog record. Keep an explicit `MissingWorkspace`
+  classification, item-source lineage and unresolved capacity state. Do not
+  guess their domain/use case or infer deletion from absence.
+- A direct paginated Fabric Admin workspace reconciliation was attempted but
+  rejected with `InsufficientScopes`. Their current workspace type/state was
+  therefore not established. Required delegated scope is `Tenant.Read.All` or
+  `Tenant.ReadWrite.All`; successful SQL access does not imply this API scope.
+  No access grants, login changes or FUAM writes were performed.
+- Where both current inventory/workspace records resolved, their capacity IDs
+  matched. This is current-state correspondence, not historical assignment.
+- FUAM workspace deletion flags can coexist with `State = Active`; some stored
+  consumption still refers to those workspaces. Preserve both source fields and
+  those facts. Do not filter out historical consumption solely because a
+  current workspace/item deletion flag is set.
+- Upstream active-item transfer merges by `id` and updates missing-source
+  records' `fuam_deleted` flag. It updates metadata in place rather than keeping
+  an effective-dated item/workspace assignment ledger. A flag is a source
+  observation, not verified original deletion time.
+- Metric kind names differ from inventory type names: observed examples include
+  `SynapseNotebook / Notebook`, `Pipeline / DataPipeline`,
+  `Variables / VariableLibrary` and `Dataset / SemanticModel`. Also,
+  `Warehouse` metric rows resolved to both `Warehouse` and `SQLEndpoint` items.
+  A one-to-one kind-name alias is not a safe join key. Keep original metric kind
+  and canonical inventory type separately.
+- For the MVP, use general `active_items` as the inventory source. The empty
+  scanner tables are not additional records to union blindly; introduce
+  source precedence only when a populated second source has been validated.
+- Raw Fabric tag counts are not use-case classification. One raw tag does not
+  prove a designated use-case tag, and multiple raw tags do not necessarily
+  constitute a use-case conflict. Classification must use the approved stable
+  tag-ID allowlist from issue 2 before resolving zero/one/multiple matches.
+- Source extraction and metric dates lag the validation time. Show those
+  timestamps and telemetry gaps; no-metric labels mean only "no observation in
+  the selected stored window", not "never used" or zero current usage.
+- Only schema and aggregate metadata were read. Item definitions, descriptions,
+  creator identities and Variable Library values were not extracted or published.
+
+Remaining inventory acceptance gates: reconcile missing workspace coverage,
+approve use-case tags, implement normalized inventory/classification with
+effective-dated assignments, and verify behavior after actual reassignment or
+deletion. Current joins do not retrospectively prove either event.
 
 ### Denominator validation
 
