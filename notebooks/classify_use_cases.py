@@ -9,6 +9,7 @@
 # PARAMETERS CELL ********************
 source_workspace_id = ""
 source_lakehouse_id = ""
+source_table_schema = ""
 initial_use_cases_json = "[]"
 
 # METADATA ********************
@@ -16,6 +17,7 @@ initial_use_cases_json = "[]"
 
 # CELL ********************
 import json
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
@@ -200,6 +202,7 @@ def inherit_item_inventory(
 
 def collect_classification(
     spark: "SparkSession", workspace_id: str, lakehouse_id: str, initial_json: str,
+    source_schema: str = "",
 ) -> None:
     import notebookutils
     from pyspark.sql.types import (
@@ -213,6 +216,10 @@ def collect_classification(
         raise ValueError("initial_use_cases_json must be an array of case records")
     endpoint = notebookutils.conf.get("fs.defaultFS").split("@")[1].rstrip("/")
     root = f"abfss://{workspace_id}@{endpoint}/{lakehouse_id}/Tables"
+    if source_schema:
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", source_schema):
+            raise ValueError("Invalid source Lakehouse schema")
+        root += "/" + source_schema
     spark.conf.set("spark.sql.session.timeZone", "UTC")
     run_id = str(uuid4())
     observed = datetime.now(timezone.utc)
@@ -427,6 +434,7 @@ if __name__ == "__main__":
     collect_classification(
         SparkSession.builder.getOrCreate(),
         source_workspace_id, source_lakehouse_id, initial_use_cases_json,
+        source_table_schema,
     )
 
 # METADATA ********************

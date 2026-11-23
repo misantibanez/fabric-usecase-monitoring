@@ -78,6 +78,12 @@ and data quality are separate views.
 
 ## Delivery sequence
 
+For customer deployment over existing FUAM/Capacity Metrics, use the
+[single-notebook installer and runbook](docs/installation.md). Import the
+packaged notebook into the destination workspace and Run all after setting its
+parameters. Monitoring resources are created automatically; organizational
+permissions and an authorized SQL connection remain external prerequisites.
+
 1. Validate FUAM sources, permissions and temporal coverage.
 2. Define use-case classification and historical assignment.
 3. Normalize the item inventory.

@@ -4,6 +4,10 @@ The [classification notebook](../notebooks/classify_use_cases.py) writes to the
 independent monitoring Lakehouse, not FUAM. It reads FUAM's `tags`, `workspaces`,
 `workspace_tags`, `active_items` and `domains_flatten` Delta tables. Run it manually with the source
 workspace/Lakehouse IDs and the monitoring Lakehouse attached as the default.
+Set `source_table_schema` to the source Lakehouse's actual Delta schema for
+schema-enabled sources; leave it empty for legacy `Tables/<table>` sources.
+SQL endpoint `dbo` alone does not prove a Delta `Tables/dbo` directory exists.
+The single-notebook installer discovers this distinction from Lakehouse metadata.
 An hourly classification schedule has not been configured.
 
 ## Tables

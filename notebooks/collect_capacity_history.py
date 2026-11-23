@@ -301,7 +301,7 @@ def run_capacity_history(
         path = "/v1/capacities"
         seen_tokens: set[str] = set()
         while True:
-            response = client.get(path)
+            response = client.get(path, headers={"x-ms-fabric-skill": "semantic-model-authoring"})
             response.raise_for_status()
             payload = response.json()
             if not isinstance(payload, dict) or not isinstance(payload.get("value"), list):
