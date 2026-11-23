@@ -14,6 +14,7 @@ An hourly classification schedule has not been configured.
 | `dbo.classification_runs` | Running/Succeeded/Failed evidence, UTC start/end and failure type/message. |
 | `dbo.workspace_use_case_snapshots` | One observation per workspace/run, including capacity/domain IDs, source metadata and classification. |
 | `dbo.use_case_catalog_snapshots` | Catalog copy associated with each completed capture. |
+| `dbo.item_use_case_snapshots` | One item per run, inheriting its workspace observation, with item type/lifecycle, separate item-capacity metadata and extraction timestamp. |
 
 Only enabled entries referencing an existing Fabric **Domain-scope tag ID**
 participate. Domain-scoped tags are not identified by display-name equality or
@@ -29,8 +30,11 @@ Use-case IDs must also be unique; invalid catalogs fail explicitly.
 Repeated/descriptive tags cannot multiply workspace rows. Workspace observations
 include inventory-only references and workspaces with no observed consumption.
 FUAM deletion flags are retained as metadata, not used to erase observations.
-Item inheritance and domain/subdomain hierarchy enrichment are subsequent steps;
-these tables do not yet deploy a normalized item inventory.
+The normalized item inventory now inherits workspace classification in the same
+capture. It retains objects without metrics and marked-deleted records. Item
+tags do not override that inheritance, and metric kind names are not used as
+item identity. Domain/subdomain hierarchy enrichment and exact historical
+assignment remain subsequent steps.
 
 ## Maintaining the catalog
 
@@ -89,7 +93,7 @@ OneLake and SQL schema visibility can lag; check OneLake before concluding a
 failed run made no writes or before deciding to reseed.
 If tables are present in OneLake but missing/stale in SQL, the documented
 [SQL endpoint metadata refresh](https://learn.microsoft.com/en-us/rest/api/fabric/sqlendpoint/items/refresh-sql-endpoint-metadata)
-can synchronize them. Scope `tables` to these four `dbo` tables and keep
+can synchronize them. Scope `tables` to the affected `dbo` tables above and keep
 `recreateTables` at `false`; do not rebuild tables or rerun the seed to address
 SQL visibility. This refresh succeeded for the pilot's classification tables.
 
@@ -100,3 +104,9 @@ integrity checks passed. Source workspace-key reconciliation also passed without
 missing/extra keys. A subsequent notebook run with no seed records succeeded,
 confirming it reads the persisted editable catalog. Unit tests alone do not prove
 deployed table contents or historical billing eligibility.
+
+The collector also records `inventory_snapshot_count`; older runs have no count
+and did not capture items. The inventory view selects the latest successful run
+with a non-null inventory count, including a valid empty capture. The
+[item inventory and consumption-preview guide](item-consumption-preview.md)
+describes the deployed views, source-key checks and additional reconciliation.

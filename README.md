@@ -128,10 +128,18 @@ tag IDs are now approved for the pilot. An
 [editable use-case catalog and classification notebook](docs/use-case-classification.md)
 has successfully captured workspace and catalog observations in the monitoring
 Lakehouse. The team can add new cases by stable Fabric Domain tag ID without
-changing collector code. Classification is currently manual; normalized item
-inheritance, domain/subdomain enrichment and exact historical assignments remain
-pending. The [classification diagnostic](scripts/validate_use_case_classification.sql)
+changing collector code. Classification is currently manual; domain/subdomain
+enrichment and exact historical assignments remain pending.
+The [classification diagnostic](scripts/validate_use_case_classification.sql)
 checks the persisted catalog, run evidence and snapshot invariants.
+The [normalized item inventory and consumption preview](docs/item-consumption-preview.md)
+are now deployed. Items inherit the captured workspace classification, including
+explicit unresolved states; objects without metrics and marked-deleted records
+remain visible. SQL views group FUAM item-operation consumption by metric capacity
+and current use case without duplicating or dropping source rows. Every preview
+row is explicitly unvalidated for historical attribution; these are not billing
+percentages. Inventory identity/metadata and metric row/CU conservation passed
+live reconciliation.
 
 ## Upstream references
 

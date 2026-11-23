@@ -90,6 +90,52 @@ def classify_workspace(
     }
 
 
+def inherit_item_inventory(
+    items: list[dict[str, object]], snapshots: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    workspaces: dict[str, dict[str, object]] = {}
+    for snapshot in snapshots:
+        key = identifier(snapshot["workspace_id"])
+        if key in workspaces:
+            raise ValueError("Duplicate workspace classification observation")
+        workspaces[key] = snapshot
+    result: list[dict[str, object]] = []
+    item_ids: set[str] = set()
+    for item in items:
+        item_id = identifier(item["id"])
+        workspace_id = identifier(item["workspaceId"])
+        if item_id in item_ids:
+            raise ValueError("Duplicate source item ID")
+        item_ids.add(item_id)
+        if workspace_id not in workspaces:
+            raise ValueError("Inventory workspace has no classification observation")
+        workspace = workspaces[workspace_id]
+        item_type = item["type"]
+        if not isinstance(item_type, str) or not item_type.strip():
+            raise ValueError("Source item type is required")
+        raw_capacity = item["capacityId"]
+        item_capacity = (
+            None if raw_capacity is None or raw_capacity == ""
+            else identifier(raw_capacity)
+        )
+        workspace_capacity = workspace["capacity_id"]
+        result.append({
+            **workspace,
+            "item_id": item_id, "item_name": item["name"], "item_type": item_type,
+            "item_state": item["state"], "item_capacity_id": item_capacity,
+            "item_deleted_flag": item["fuam_deleted"],
+            "item_source_modified_at": item["fuam_modified_at"],
+            "capacity_join_status": (
+                "MissingWorkspace" if workspace["classification_status"] == "MissingWorkspace"
+                else "ItemCapacityMissing" if item_capacity is None
+                else "WorkspaceCapacityMissing" if workspace_capacity is None
+                else "CurrentCapacityMatched" if item_capacity == workspace_capacity
+                else "CurrentCapacityMismatch"
+            ),
+        })
+    return result
+
+
 def collect_classification(
     spark: "SparkSession", workspace_id: str, lakehouse_id: str, initial_json: str,
 ) -> None:
@@ -135,10 +181,12 @@ def collect_classification(
         StructField("status", string, False),
         StructField("error_type", string, True),
         StructField("error_message", string, True),
+        StructField("inventory_snapshot_count", IntegerType(), True),
     ])
     run = {
         "run_id": run_id, "started_at": observed, "completed_at": None,
         "status": "Running", "error_type": None, "error_message": None,
+        "inventory_snapshot_count": None,
     }
     runs_table = "dbo.classification_runs"
     catalog_table = "dbo.use_cases"
@@ -203,12 +251,14 @@ def collect_classification(
             if tag not in tags:
                 raise ValueError("Workspace association references a missing tag")
             associations.setdefault(key, []).append(tag)
-        inventory_keys = {
-            identifier(row["workspaceId"])
+        inventory = [
+            row.asDict()
             for row in spark.read.format("delta").load(root + "/active_items").select(
-                "workspaceId"
-            ).distinct().collect()
-        }
+                "id", "workspaceId", "name", "type", "state", "capacityId",
+                "fuam_deleted", "fuam_modified_at",
+            ).collect()
+        ]
+        inventory_keys = {identifier(row["workspaceId"]) for row in inventory}
         snapshots: list[dict[str, object]] = []
         for key in sorted(set(workspaces) | inventory_keys | set(associations)):
             workspace = workspaces.get(key)
@@ -226,6 +276,22 @@ def collect_classification(
                 "source_modified_at": workspace["fuam_modified_at"] if workspace else None,
                 **classify_workspace(workspace is not None, associations.get(key, []), enabled),
             })
+        items = inherit_item_inventory(inventory, snapshots)
+        item_schema = StructType(snapshot_schema.fields + [
+            StructField("item_id", string, False),
+            StructField("item_name", string, True),
+            StructField("item_type", string, False),
+            StructField("item_state", string, True),
+            StructField("item_capacity_id", string, True),
+            StructField("item_deleted_flag", BooleanType(), True),
+            StructField("item_source_modified_at", timestamp, True),
+            StructField("capacity_join_status", string, False),
+        ])
+        item_table = "dbo.item_use_case_snapshots"
+        run["inventory_snapshot_count"] = len(items)
+        spark.createDataFrame(items, item_schema).write.format("delta").mode(
+            "append"
+        ).saveAsTable(item_table)
         data = spark.createDataFrame(snapshots, snapshot_schema)
         data.write.format("delta").mode("append").saveAsTable(snapshot_table)
         from pyspark.sql import functions as f
@@ -237,6 +303,8 @@ def collect_classification(
         ).saveAsTable(catalog_snapshot_table)
         if spark.table(snapshot_table).where(f.col("run_id") == run_id).count() != len(snapshots):
             raise RuntimeError("Persisted workspace classification count mismatch")
+        if spark.table(item_table).where(f.col("run_id") == run_id).count() != len(items):
+            raise RuntimeError("Persisted item inventory count mismatch")
         finalize("Succeeded")
         print(f"Classification captured. Run ID: {run_id}. Workspace observations: {len(snapshots)}")
     except Exception as error:

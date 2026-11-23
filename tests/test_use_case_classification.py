@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from notebooks.classify_use_cases import (
-    classify_workspace, collect_classification, validate_catalog,
+    classify_workspace, collect_classification, inherit_item_inventory, validate_catalog,
 )
 
 
@@ -92,6 +92,57 @@ class UseCaseClassificationTests(unittest.TestCase):
             f"abfss://{self.tag}@onelake.dfs.fabric.microsoft.com/{self.other}/Tables/tags"
         )
         self.assertEqual(self.enabled()[self.tag.upper()]["tag_id"], self.tag.upper())
+
+    def item(self, item_id=None, workspace_id=None, item_type="Notebook"):
+        return {
+            "id": item_id or self.first, "workspaceId": workspace_id or self.tag,
+            "name": "Example item", "type": item_type, "state": "Active",
+            "capacityId": self.other, "fuam_deleted": False, "fuam_modified_at": None,
+        }
+
+    def workspace(self, workspace_id=None, status="Assigned"):
+        return {
+            "workspace_id": (workspace_id or self.tag).upper(),
+            "capacity_id": self.other.upper(), "domain_id": None,
+            "classification_status": status,
+            "matched_case_count": 1 if status == "Assigned" else 2 if status == "Ambiguous" else 0,
+            "use_case_id": self.first if status == "Assigned" else None,
+            "use_case_name": "Example" if status == "Assigned" else None,
+        }
+
+    def test_inventory_inherits_workspace_case_without_metrics_or_item_tags(self):
+        items = [self.item(), self.item(self.second, item_type="VariableLibrary")]
+        items[0]["tagId"] = self.other
+        items[1]["fuam_deleted"] = True
+        snapshots = [self.workspace()]
+        before = dict(snapshots[0])
+        inherited = inherit_item_inventory(items, snapshots)
+        self.assertEqual(len(inherited), 2)
+        self.assertEqual([row["use_case_id"] for row in inherited], [self.first, self.first])
+        self.assertEqual(inherited[1]["item_type"], "VariableLibrary")
+        self.assertTrue(inherited[1]["item_deleted_flag"])
+        self.assertEqual(snapshots[0], before)
+
+    def test_inventory_preserves_unresolved_states_and_capacity_mismatch(self):
+        for status in ("Unclassified", "Ambiguous", "MissingWorkspace"):
+            workspace = self.workspace(status=status)
+            if status == "MissingWorkspace":
+                workspace["capacity_id"] = None
+            row = inherit_item_inventory([self.item()], [workspace])[0]
+            self.assertEqual(row["classification_status"], status)
+            self.assertIsNone(row["use_case_id"])
+        workspace = self.workspace()
+        workspace["capacity_id"] = self.first
+        row = inherit_item_inventory([self.item()], [workspace])[0]
+        self.assertEqual(row["capacity_join_status"], "CurrentCapacityMismatch")
+        self.assertEqual(row["item_capacity_id"], self.other.upper())
+        self.assertEqual(row["capacity_id"], self.first)
+
+    def test_inventory_rejects_duplicate_ids_and_absent_workspace_observations(self):
+        with self.assertRaisesRegex(ValueError, "Duplicate source item"):
+            inherit_item_inventory([self.item(), self.item()], [self.workspace()])
+        with self.assertRaisesRegex(ValueError, "no classification observation"):
+            inherit_item_inventory([self.item()], [])
 
 
 if __name__ == "__main__":

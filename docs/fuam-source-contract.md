@@ -191,8 +191,7 @@ the queried snapshot, not full issue acceptance or historical attribution.
   creator identities and Variable Library values were not extracted or published.
 
 Remaining inventory acceptance gates: reconcile missing workspace coverage,
-implement normalized item inventory/classification with
-effective-dated assignments, and verify behavior after actual reassignment or
+establish exact effective-dated assignments, and verify behavior after actual reassignment or
 deletion. Current joins do not retrospectively prove either event.
 
 The pilot's designated Domain-scope tags are now approved and registered in an
@@ -201,6 +200,13 @@ classification capture preserves catalog and workspace observations, including
 explicit unclassified/ambiguous/missing-workspace states. This begins prospective
 classification history without modifying FUAM. It does not establish exact
 effective-change times or backfill historical item attribution.
+The collector subsequently deployed normalized item observations inheriting the
+workspace capture and preserving no-metric/deleted inventory records. A
+[current-classification consumption preview](item-consumption-preview.md) now
+groups source item-operation measures without fanout. Exact retained inventory
+metadata and raw/joined/grouped metric row/CU totals passed live reconciliation.
+This preview always labels historical attribution as unvalidated; it does not
+resolve source freshness or billing gates.
 
 ### Denominator validation
 
