@@ -124,7 +124,14 @@ metric/item/workspace matches while retaining items without metrics. Some
 inventory workspaces remain unresolved, and source timestamps lag the check.
 The [inventory diagnostic](scripts/validate_inventory_joins.sql) preserves those
 gaps and raw tag-count statuses without duplicating items. Designated use-case
-tag IDs and historical classification still require approval/implementation.
+tag IDs are now approved for the pilot. An
+[editable use-case catalog and classification notebook](docs/use-case-classification.md)
+has successfully captured workspace and catalog observations in the monitoring
+Lakehouse. The team can add new cases by stable Fabric Domain tag ID without
+changing collector code. Classification is currently manual; normalized item
+inheritance, domain/subdomain enrichment and exact historical assignments remain
+pending. The [classification diagnostic](scripts/validate_use_case_classification.sql)
+checks the persisted catalog, run evidence and snapshot invariants.
 
 ## Upstream references
 

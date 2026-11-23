@@ -191,9 +191,16 @@ the queried snapshot, not full issue acceptance or historical attribution.
   creator identities and Variable Library values were not extracted or published.
 
 Remaining inventory acceptance gates: reconcile missing workspace coverage,
-approve use-case tags, implement normalized inventory/classification with
+implement normalized item inventory/classification with
 effective-dated assignments, and verify behavior after actual reassignment or
 deletion. Current joins do not retrospectively prove either event.
+
+The pilot's designated Domain-scope tags are now approved and registered in an
+[editable monitoring catalog](use-case-classification.md). A successful manual
+classification capture preserves catalog and workspace observations, including
+explicit unclassified/ambiguous/missing-workspace states. This begins prospective
+classification history without modifying FUAM. It does not establish exact
+effective-change times or backfill historical item attribution.
 
 ### Denominator validation
 
