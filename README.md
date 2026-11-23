@@ -114,8 +114,11 @@ An [independent capacity-history collector](docs/capacity-history.md) is now
 deployed and its first manual pilot verified: snapshots, raw system events and
 run evidence are stored in a separate Lakehouse without changing FUAM.
 This starts prospective history; it does not establish past billing availability.
-There is not yet a deployed report, independent semantic model or recurring
-ingestion schedule.
+The collector now runs hourly in UTC with a bounded 90-day schedule and no
+automatic renewal. Its first scheduler-origin execution and additional snapshot
+were verified. Monitor schedule state after capacity pauses and track monitoring
+overhead separately from business activity.
+There is not yet a deployed report or independent semantic model.
 
 ## Upstream references
 

@@ -6,7 +6,9 @@
 Fabric PySpark notebook source with a tagged parameter cell. A manual pilot is
 deployed in an independent, schema-enabled `UseCaseMonitoring_Lakehouse` in the
 FUAM workspace. No existing FUAM tables, notebooks or pipelines were changed.
-No recurring schedule is enabled.
+One hourly UTC schedule is enabled for the pilot capacity, with a bounded
+90-day validity and no automatic renewal. Expiry is recorded in the private
+Fabric schedule configuration, not in this public repository.
 
 The first pilot completed and encrypted SQL queries confirmed its successful run
 record, current-state/SKU snapshot, empty-but-present event table, zero duplicate
@@ -78,10 +80,54 @@ no inferred availability effect.
   eligibility flag: source freshness, event-window coverage, initial state,
   usage completeness and historical SKU transitions still require validation.
 
-Collection currently runs serially for one capacity. No parallel writer or
-automatic schedule is enabled. Schedule design and additional capacities follow
-pilot approval; overlapping windows should preserve events before they age out
-of the source's available window.
+Collection targets one capacity through one schedule. Do not introduce parallel
+writers or overlapping manual runs. Hourly scheduling does not itself provide a
+writer lock if an execution takes longer than its interval. Overlapping query
+windows preserve observed events without duplicating them; expanding the pilot
+to additional capacities requires separate validation.
+
+## Hourly scheduling and operation
+
+The selected interval is 60 minutes (nominally 24 Spark executions per day).
+The proposed 90-day validity was retained when no duration was supplied.
+There is no automatic renewal or capacity resume action.
+
+The schedule API accepts configuration and execution data, but does not expose
+the top-level parameter array used by the successful manual notebook run.
+Therefore, bind the verified source workspace/model/capacity and 14-day lookback
+in the **deployed** notebook's parameter cell before scheduling. Public source
+defaults remain empty. Preserve the implementation cells and default Lakehouse
+binding; export/read the definition to verify them.
+
+1. Inspect existing schedules; do not create a duplicate.
+2. Create one disabled `RunNotebook` schedule using the Core Job Scheduler API,
+   `Cron`, interval `60`, timezone `UTC` and explicit UTC start/end timestamps.
+3. Read it back and verify owner, interval, validity and disabled state.
+4. Enable it with `PATCH`, preserving the chosen configuration. Read it back
+   again and verify that only one schedule exists.
+5. Verify an actual `Scheduled` job and its persisted run/snapshot, not a manual
+   substitute or merely a `Completed` job status.
+6. Recheck successful-run freshness and `Running`/`Failed` records regularly.
+   No notification/alerting service is deployed yet.
+
+The first scheduler-origin execution completed and its successful run and
+additional snapshot were independently confirmed in SQL. Subsequent validation
+encountered an inactive capacity and a disabled schedule. After the user
+confirmed resumption, Fabric's active state was verified and the **same**
+schedule was re-enabled without changing its expiry. The cause of the earlier
+disablement was not established.
+
+Pausing the hosting capacity can prevent Spark execution and SQL endpoint
+validation. Do not assume its schedule remains enabled after resumption: inspect
+the existing schedule and explicitly re-enable it when approved. Do not create
+a replacement, extend expiry silently or resume the capacity automatically.
+Keep the gap visible; a later successful query does not prove every earlier
+window was fully observed.
+
+The collector consumes capacity itself. Show monitoring overhead separately
+from business activity in later reporting, without silently discarding or
+redistributing its CU consumption. Monitoring-only operations must not be
+presented as proof of a business use case being active.
 
 ## Reproducible deployment
 
@@ -116,6 +162,10 @@ imports and the live notebook execution validated syntax/runtime instead.
 The saved SQL diagnostic also passed: all four result sets returned, all seven
 invariant checks had zero failures, and a successful snapshot was persisted.
 `git diff --check` passed.
+Hourly automation was verified through a scheduler-origin job, schedule
+readback/owner checks and its additional persisted snapshot. SQL verification
+was interrupted while the capacity was inactive and resumed after reactivation;
+the hosting capacity was not resumed by this solution.
 
 The first observed snapshot is a prospective anchor only. It cannot reconstruct
 pre-observation availability, exact transitions between sampled SKUs or the

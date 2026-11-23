@@ -194,8 +194,11 @@ Expose creation time only when a `Created` event or another verified Fabric
 source supplies it; otherwise distinguish first observed time from creation time.
 The subsequent [capacity-history collector pilot](capacity-history.md) deployed
 an independent Lakehouse/notebook and verified its first persisted observations.
-FUAM and source-model configuration were not changed. No recurring schedule is
-enabled, and this prospective anchor does not validate earlier billing periods.
+FUAM and source-model configuration were not changed. Hourly UTC collection is
+now enabled with a bounded 90-day schedule; its first scheduler-origin run and
+additional snapshot were verified. This prospective history does not validate
+earlier billing periods. Schedule state and coverage gaps must be checked after
+capacity pauses/resumption.
 
 ## Open correctness questions
 
