@@ -39,7 +39,7 @@ views, semantic models or reports. The notebook embeds the implementation.
 | `source_lakehouse_name` | Existing FUAM Lakehouse name; default `FUAM_Lakehouse`. Resource IDs are discovered. |
 | `installation_prefix` | Names of the isolated monitoring resources; default `UseCaseMonitoring`. Use a new prefix for a separate installation. |
 | `metric_sources` | One mapping per monitored capacity: `capacity_id`, Capacity Metrics `workspace_id`, `model_id`. No access tokens. |
-| `initial_use_cases` | Optional initial catalog entries: stable `use_case_id`, name, actual Domain-scope `tag_id`, Boolean `is_enabled`. Empty means all workspaces remain unclassified. |
+| `initial_use_cases` | Optional initial entries `{"UC": "Report name", "TAG": "EXACT_TAG_NAME"}`. Domain tag IDs are resolved from FUAM and internal case IDs generated automatically. Empty means all workspaces remain unclassified. The previous ID-based format remains supported; do not mix formats. |
 | `initial_estimates` | Optional explicitly approved full-report-day assumptions; see [scenario schema](capacity-scenarios.md). Empty means real consumption is visible but real percentages stay blank. No inferred F-SKU or active time is seeded. |
 | `sql_connection_id` | Optional explicit existing authorized connection. Required if multiple matches exist. Never a password/token. |
 | `focus_date` | Initial report page day, or empty for latest stored metric day. Changing the report's date is done in its Filters pane. |
@@ -50,6 +50,25 @@ Edit the resulting catalog/assumption tables through Spark for subsequent
 business changes, not by reseeding or changing installed notebook definitions.
 Connections may be configured after the first run: set `sql_connection_id`
 and rerun the same notebook. SQL credentials are never accepted as parameters.
+
+For the initial catalog, paste a list directly into the parameter cell:
+
+```python
+initial_use_cases = [
+    {"UC": "Example analytics", "TAG": "EXAMPLE_ANALYTICS"},
+    {"UC": "Example operations", "TAG": "EXAMPLE_OPERATIONS"},
+]
+```
+
+`UC` is the report display name and may differ from `TAG`. Names are trimmed
+at the input boundary; tag matching is exact and case-sensitive, restricted
+to Domain-scope tags in FUAM's `tags` table (`tagId`, `scope`, `displayName`).
+Each name must resolve to one tag. Missing or ambiguous tags, repeated use-case
+names or repeated resolved tags fail the initial load explicitly. No Fabric
+tags are created. If a new tag is missing from FUAM, refresh the upstream
+extraction first. The generated IDs are persisted once in `dbo.use_cases`;
+later runs classify by those IDs, not by names. This is an initial seed only,
+not an import/update mechanism for an existing catalog.
 
 ## What Run all does
 
@@ -137,6 +156,10 @@ reused all resources without repeating initial collector jobs or model refresh.
 The `refresh` operation also passed: it reused resources, ran each collector
 exactly once, submitted one new Import refresh and revalidated SQL/model counts.
 The deployed notebook also passed an exact four-cell ipynb round-trip check.
+The subsequent UC/TAG seed adapter passed focused resolver/collector integration
+tests and a read-only lookup against actual FUAM tag metadata. Existing deployed
+catalogs were not migrated or modified; use a new installation prefix to test
+this package revision rather than replacing a previously installed package.
 
 The report is published, but rendering in the browser remains a customer check
 requiring an interactive sign-in. These checks do not certify billing readiness,

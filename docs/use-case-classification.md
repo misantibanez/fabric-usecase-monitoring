@@ -22,8 +22,9 @@ An hourly classification schedule has not been configured.
 | `dbo.domain_hierarchy_snapshots` | Per-run original domain/parent IDs and names with resolved root/subdomain/path evidence. |
 
 Only enabled entries referencing an existing Fabric **Domain-scope tag ID**
-participate. Domain-scoped tags are not identified by display-name equality or
-by counting all workspace tags. A tag may belong to only one enabled use case.
+participate. Attribution uses persisted tag IDs, not display-name equality or
+counting all workspace tags. Initial name-based seeds resolve those IDs once.
+A tag may belong to only one enabled use case.
 Use-case IDs must also be unique; invalid catalogs fail explicitly.
 
 - Exactly one matching case: `Assigned`.
@@ -40,6 +41,23 @@ capture. It retains objects without metrics and marked-deleted records. Item
 tags do not override that inheritance, and metric kind names are not used as
 item identity. Domain/subdomain hierarchy is now captured and inherited by
 stable domain/parent IDs. Exact historical assignment remains a subsequent step.
+
+## Initial catalog without IDs
+
+The installer accepts `initial_use_cases = [{"UC": "Example analytics", "TAG":
+"EXAMPLE_ANALYTICS"}]`. For the standalone classifier, pass the equivalent JSON
+array in `initial_use_cases_json`.
+
+`UC` becomes the display name. `TAG` resolves against FUAM's actual
+`tags.displayName`, using an exact, case-sensitive match within `scope=Domain`
+after trimming input whitespace. The classifier generates an internal case UUID,
+uses the resolved Fabric tag UUID, and enables the entry. All entries are
+validated before writing the catalog. Missing or ambiguous tags, duplicate
+use-case names or resolved tags, and mixed simple/ID-based seed formats fail
+explicitly. Existing ID-based seeds remain supported.
+
+No tags are created and existing catalogs are not updated or reseeded.
+Generated case IDs remain stable because later runs read the persisted catalog.
 
 ## Maintaining the catalog
 

@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 from notebooks.classify_use_cases import (
     build_domain_index, classify_workspace, collect_classification,
-    inherit_item_inventory, resolve_domain, validate_catalog,
+    inherit_item_inventory, resolve_domain, resolve_initial_use_cases, validate_catalog,
 )
 
 
@@ -74,6 +74,84 @@ class UseCaseClassificationTests(unittest.TestCase):
                 self.enabled(rows)
         with self.assertRaises(ValueError):
             validate_catalog(self.cases(), {self.tag.upper(): "Tenant", self.other.upper(): "Domain"})
+
+    def test_initial_names_resolve_domain_ids_and_generate_case_ids(self):
+        source = [
+            {"tagId": self.tag, "scope": "Domain", "displayName": "ANALYTICS"},
+            {"tagId": self.other, "scope": "Tenant", "displayName": "ANALYTICS"},
+        ]
+        original = [{"UC": " Report analytics ", "TAG": " ANALYTICS "}]
+        result = resolve_initial_use_cases(original, source)
+        self.assertEqual(result[0]["use_case_name"], "Report analytics")
+        self.assertEqual(result[0]["tag_id"], self.tag.upper())
+        self.assertTrue(result[0]["is_enabled"])
+        self.assertNotIn(result[0]["use_case_id"], {self.tag.upper(), self.other.upper()})
+        self.assertEqual(
+            validate_catalog(result, {self.tag.upper(): "Domain"}),
+            result,
+        )
+        self.assertEqual(original, [{"UC": " Report analytics ", "TAG": " ANALYTICS "}])
+        self.assertEqual(resolve_initial_use_cases(self.cases(), source), self.cases())
+
+    def test_initial_names_reject_missing_non_domain_and_ambiguous_tags(self):
+        domain = {"tagId": self.tag, "scope": "Domain", "displayName": "ANALYTICS"}
+        for tags, name, error in (
+            ([], "ANALYTICS", "TAG_NOT_FOUND"),
+            ([{**domain, "scope": "Tenant"}], "ANALYTICS", "TAG_NOT_FOUND"),
+            ([domain], "analytics", "TAG_NOT_FOUND"),
+            ([domain, {**domain, "tagId": self.other}], "ANALYTICS", "TAG_AMBIGUOUS"),
+        ):
+            with self.subTest(tags=tags, name=name), self.assertRaisesRegex(ValueError, error):
+                resolve_initial_use_cases([{"UC": "Report analytics", "TAG": name}], tags)
+
+    def test_initial_names_reject_invalid_duplicate_and_mixed_entries(self):
+        tags = [
+            {"tagId": self.tag, "scope": "Domain", "displayName": "ANALYTICS"},
+            {"tagId": self.other, "scope": "Domain", "displayName": "OPERATIONS"},
+        ]
+        first = {"UC": "Report analytics", "TAG": "ANALYTICS"}
+        for rows in (
+            [{**first, "UC": ""}], [{**first, "TAG": None}],
+            [{"UC": "Report analytics"}],
+            [first, self.cases()[0]],
+            [first, {"UC": "Report analytics", "TAG": "OPERATIONS"}],
+            [first, {"UC": "Report operations", "TAG": "ANALYTICS"}],
+        ):
+            with self.subTest(rows=rows), self.assertRaises(ValueError):
+                resolve_initial_use_cases(rows, tags)
+
+    def test_collector_writes_resolved_initial_catalog_not_input_names(self):
+        class Row(dict):
+            def asDict(self):
+                return dict(self)
+
+        spark = Mock()
+        spark.catalog.tableExists.return_value = False
+        frame = spark.read.format.return_value.load.return_value
+        frame.columns = ["tagId", "scope", "displayName"]
+        frame.select.return_value.collect.return_value = [
+            Row(tagId=self.tag, scope="Domain", displayName="ANALYTICS"),
+        ]
+        writer = spark.createDataFrame.return_value.write.format.return_value
+        writer.mode.return_value.saveAsTable.side_effect = RuntimeError("Stop at catalog write")
+        utilities = Mock()
+        utilities.conf.get.return_value = "abfss://example@onelake.dfs.fabric.microsoft.com/"
+        modules = {
+            "notebookutils": utilities,
+            "pyspark.sql.types": Mock(),
+            "delta.tables": Mock(),
+        }
+        with patch.dict("sys.modules", modules), self.assertRaisesRegex(RuntimeError, "Stop at catalog write"):
+            collect_classification(
+                spark, self.first, self.second,
+                '[{"UC":"Report analytics","TAG":"ANALYTICS"}]',
+            )
+        frame.select.assert_called_once_with("tagId", "scope", "displayName")
+        seed = spark.createDataFrame.call_args_list[1].args[0]
+        self.assertEqual(seed[0]["use_case_name"], "Report analytics")
+        self.assertEqual(seed[0]["tag_id"], self.tag.upper())
+        self.assertEqual(set(seed[0]), {"use_case_id", "use_case_name", "tag_id", "is_enabled"})
+        writer.mode.return_value.saveAsTable.assert_called_once_with("dbo.use_cases")
 
     def test_spark_reads_canonical_resource_ids_without_changing_matching_ids(self):
         spark = Mock()

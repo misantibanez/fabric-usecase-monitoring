@@ -35,6 +35,43 @@ def identifier(value: object) -> str:
     return str(parsed).upper()
 
 
+def resolve_initial_use_cases(
+    rows: list[dict[str, object]], tag_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    if not any("UC" in row or "TAG" in row for row in rows):
+        return rows
+    if any(set(row) != {"UC", "TAG"} for row in rows):
+        raise ValueError("Initial use cases must all contain only UC and TAG; do not mix seed formats")
+    cases: list[dict[str, object]] = []
+    names: set[str] = set()
+    tag_ids: set[str] = set()
+    for row in rows:
+        name, tag_name = row["UC"], row["TAG"]
+        if not isinstance(name, str) or not name.strip() or not isinstance(tag_name, str) or not tag_name.strip():
+            raise ValueError("UC and TAG must be nonempty strings")
+        name, tag_name = name.strip(), tag_name.strip()
+        if name in names:
+            raise ValueError(f"Duplicate initial UC: {name!r}")
+        matches = [
+            tag for tag in tag_rows
+            if tag.get("scope") == "Domain" and tag.get("displayName") == tag_name
+        ]
+        if not matches:
+            raise ValueError(f"TAG_NOT_FOUND: no Domain tag named {tag_name!r} in FUAM; check the name and source freshness")
+        if len(matches) != 1:
+            raise ValueError(f"TAG_AMBIGUOUS: multiple Domain tags named {tag_name!r}; no ID was selected")
+        tag_id = identifier(matches[0].get("tagId"))
+        if tag_id in tag_ids:
+            raise ValueError(f"Duplicate initial TAG: {tag_name!r}")
+        names.add(name)
+        tag_ids.add(tag_id)
+        cases.append({
+            "use_case_id": identifier(str(uuid4())), "use_case_name": name,
+            "tag_id": tag_id, "is_enabled": True,
+        })
+    return cases
+
+
 def validate_catalog(
     rows: list[dict[str, object]], tags: dict[str, str],
 ) -> list[dict[str, object]]:
@@ -291,9 +328,14 @@ def collect_classification(
         ).whenMatchedUpdateAll().execute()
 
     try:
-        tag_rows = spark.read.format("delta").load(root + "/tags").select(
-            "tagId", "scope"
-        ).collect()
+        catalog_exists = spark.catalog.tableExists(catalog_table)
+        tag_frame = spark.read.format("delta").load(root + "/tags")
+        columns = ["tagId", "scope"]
+        if not catalog_exists and any("UC" in row or "TAG" in row for row in initial):
+            if "displayName" not in tag_frame.columns:
+                raise ValueError("FUAM tags require displayName to resolve initial UC/TAG names")
+            columns.append("displayName")
+        tag_rows = tag_frame.select(*columns).collect()
         tags: dict[str, str] = {}
         for row in tag_rows:
             tag_id = identifier(row["tagId"])
@@ -301,7 +343,8 @@ def collect_classification(
                 raise ValueError("Duplicate source tag ID")
             tags[tag_id] = row["scope"]
         # Seeds are inserted only when the editable catalog does not yet exist.
-        if not spark.catalog.tableExists(catalog_table):
+        if not catalog_exists:
+            initial = resolve_initial_use_cases(initial, [row.asDict() for row in tag_rows])
             initial = validate_catalog(initial, tags)
             spark.createDataFrame(initial, catalog_schema).write.format("delta").mode(
                 "errorifexists"

@@ -25,8 +25,10 @@ metric_sources = [
     {"capacity_id": "", "workspace_id": "", "model_id": ""}
 ]
 
-# Optional one-time seeds; use real Fabric Domain tag UUIDs, never display-name matching.
+# Optional one-time catalog: [{"UC": "Example analytics", "TAG": "EXAMPLE_ANALYTICS"}].
+# TAG must exactly match an existing Domain tag name in FUAM; IDs are resolved automatically.
 initial_use_cases = []
+# Optional explicitly approved availability assumptions; separate from use-case classification.
 initial_estimates = []
 sql_connection_id = ""  # Optional when exactly one matching authorized connection exists.
 focus_date = ""  # Defaults to the latest stored metric day; percentages may be blank.
