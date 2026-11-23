@@ -1,0 +1,13 @@
+-- Execute against the independent model only. Demo fixtures are synthetic.
+-- Actual and expected are ratios, displayed with percentage formatting.
+EVALUATE
+SUMMARIZECOLUMNS(
+    'Demo'[Scenario],
+    'Demo'[Use Case],
+    "ExpectedRatio", DIVIDE(SUM('Demo'[Expected Percentage]), 100),
+    "ActualRatio", [Demo Capacity Usage],
+    "ConsumedCUSeconds", [Demo CU Seconds],
+    "AvailableCUSeconds", [Demo Available CU Seconds],
+    "Status", SELECTEDVALUE('Demo'[Status])
+)
+ORDER BY 'Demo'[Scenario], 'Demo'[Use Case]

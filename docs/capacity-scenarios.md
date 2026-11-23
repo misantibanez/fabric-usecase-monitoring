@@ -102,9 +102,9 @@ Never edit source history to make a scenario pass.
 Keep intervals within the period and avoid overlaps. Re-run validation after
 edits; source views reflect current assumptions without a collector rerun.
 
-This stage supplies SQL demo/estimate sources. The independent semantic model
-and Power BI report are separate delivery steps; neither is implied by these
-views.
+This stage supplies SQL demo/estimate sources. The subsequent
+[independent semantic model and Power BI report](powerbi-monitoring.md) are now
+deployed on top of these sources; billing certification remains separate.
 
 ## Verified pilot status
 

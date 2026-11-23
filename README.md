@@ -126,7 +126,8 @@ actual bounded event queries matched saved UTC identities and provenance.
 An hourly replay preserved original event keys and first observations.
 The [capacity-history documentation](docs/capacity-history.md) describes these
 checks; they do not certify historical SKU changes or complete billing periods.
-There is not yet a deployed report or independent semantic model.
+An independent Import model and a four-page Power BI report are now deployed;
+see [model/report usage and refresh](docs/powerbi-monitoring.md).
 Inventory relationship validation now confirms unique observed keys and stored
 metric/item/workspace matches while retaining items without metrics. Some
 inventory workspaces remain unresolved, and source timestamps lag the check.
@@ -161,7 +162,9 @@ unknown outcomes. The real-data estimate preserves existing consumption and
 current classification, using editable, explicitly labeled state/SKU assumptions
 for selected complete report days. Periods without assumptions stay visible
 with null percentages. Neither mode enables billing or alters source history.
-These are SQL sources; the independent semantic model/report remains pending.
+An [independent model and visual report](docs/powerbi-monitoring.md) now consume
+these SQL sources. Initial Import refresh and live DAX/browser checks passed.
+Refresh is currently manual and all percentages remain estimated/not for billing.
 
 ## Upstream references
 
