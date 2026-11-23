@@ -155,6 +155,14 @@ now exposes baseline, query-window, source-calendar and snapshot-gap evidence.
 It keeps available CU seconds and billing percentage unknown: prospective
 snapshots and empty event results do not prove complete lifecycle/SKU intervals.
 
+Separate [demo and estimated-capacity sources](docs/capacity-scenarios.md) are
+now deployed. Synthetic scenarios verify expected percentages and explicit
+unknown outcomes. The real-data estimate preserves existing consumption and
+current classification, using editable, explicitly labeled state/SKU assumptions
+for selected complete report days. Periods without assumptions stay visible
+with null percentages. Neither mode enables billing or alters source history.
+These are SQL sources; the independent semantic model/report remains pending.
+
 ## Upstream references
 
 - [FUAM](https://github.com/microsoft/fabric-toolbox/tree/main/monitoring/fabric-unified-admin-monitoring)
