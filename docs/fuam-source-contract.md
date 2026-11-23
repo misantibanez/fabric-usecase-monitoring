@@ -105,6 +105,44 @@ FUAM solely because scanner-specific tables remain empty.
 The local scanner supports `extract_powerbi_artifacts_only` and
 `has_tenant_domains`; their deployed values and actual run behavior are unverified.
 
+### Subsequent source refresh and targeted recovery
+
+The user refreshed both Capacity Metrics models. Allowed calendar queries and
+the Power BI parameters API confirmed refreshed source calendars and matching
+configured `UTC_offset` values. A model refresh did not automatically advance
+the persisted FUAM metric facts.
+
+The existing item-operation and timepoint notebooks were then executed
+sequentially with explicit verified source parameters, a three-day lookback and
+display disabled. Their deployed default Lakehouse, parameter contracts and
+gold-table merge behavior were inspected first, and no active source pipeline
+or overlapping extraction notebook was found. Staging cleanup remained the
+existing notebook behavior; no FUAM code, pipeline or schedule was changed.
+
+Both jobs completed. SQL initially still exposed old timepoints; after
+non-recreating metadata synchronization, persisted item-operation dates and
+timepoints advanced. The current-classification previews conserved all stored
+and selected-window metric rows and CU totals, with their unresolved item
+matches visible. Timepoint keys remained unique. Newer observed facts are not
+proof of complete interval coverage or historical classification.
+
+The independent capacity collector also recovered lifecycle events after fixing
+native row-query UUID casing and source report-clock handling. Both models'
+bounded row-returning queries matched its persisted normalized event identities;
+they were not appended as duplicate sources. See
+[capacity history](capacity-history.md) for offset provenance and replay checks.
+Protected service-app semantic model definition export was denied and was not
+bypassed; only permitted queries and parameter metadata were used.
+
+The source denominator diagnostic returned a full report-calendar grid but
+reported availability only on a subset of timepoints. A nonblank available-CU
+measure is therefore still not certified capacity uptime. Its date is a
+report-clock day under `UTC_offset`, not automatically a UTC billing day.
+Daily operation aggregates, smoothed timepoints and UTC lifecycle intervals
+must be aligned and reconciled before billing arithmetic. Exact historical SKU
+transitions and period coverage remain unvalidated; denominator and percentage
+outputs remain blocked/null.
+
 ### Reusable read-only validation
 
 Run [validate_fuam_sources.sql](../scripts/validate_fuam_sources.sql) against the

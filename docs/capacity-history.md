@@ -12,8 +12,9 @@ Fabric schedule configuration, not in this public repository.
 
 The first pilot completed and encrypted SQL queries confirmed its successful run
 record, current-state/SKU snapshot, empty-but-present event table, zero duplicate
-keys and valid snapshot/run linkage. Empty event results are source observations,
-not proof of historical inactivity or uninterrupted availability.
+keys and valid snapshot/run linkage. Later recovery identified a native-query
+UUID casing issue that affected those empty event results; they do not establish
+historical inactivity or uninterrupted availability.
 Tenant names, identifiers, timestamps and counts remain private.
 
 ## Parameters and sources
@@ -30,29 +31,48 @@ only at deployment/execution, not in committed files. Attach the independent
 Lakehouse as the notebook's default and verify its `dbo` schema before executing.
 
 The collector reads Fabric Core `GET /v1/capacities`, including pagination, and
-the Capacity Metrics model's `Dates`, `Capacities` and `System Events` tables.
+the Capacity Metrics model's `Dates`, `Capacities` and `System Events` tables,
+plus its `UTC_offset` through the Power BI dataset parameters API.
 Fabric and Power BI REST clients acquire the execution identity's tokens; no
 credentials, Azure resource APIs, user names, owners or tag values are persisted.
 Execution requires capacity visibility, source-model query permissions and
 write access to the destination Lakehouse.
 
 Events use a half-open UTC query window `[run start - lookback, run start)`.
-Offset-free timestamps returned by Power BI executeQueries are interpreted as
-source UTC timestamps. Snapshots record when Core metadata was observed, not
-when the capacity was originally created or last changed.
+The source model must expose exactly one valid `UTC_offset`; missing or invalid
+metadata fails rather than silently assuming UTC. The organization-configured
+offset supports fractional hours representing whole minutes, from -12 through
++14 hours. UTC query bounds are translated into that report clock before DAX
+filtering. Offset-free event timestamps returned by executeQueries are converted
+back to UTC using the verified source offset. Explicit ISO offsets remain
+authoritative. Do not infer a timezone name or daylight-saving transitions from
+this fixed-offset setting.
+The parameter's meaning and range are documented in the
+[Capacity Metrics app installation guidance](https://learn.microsoft.com/en-us/fabric/enterprise/metrics-app-install).
+
+Native row-returning `System Events` queries use lowercase UUIDs, while stored
+identities remain canonical uppercase. Live comparison showed that an uppercase
+row predicate could return no events even when aggregate count probes reported
+matches. Validate the actual bounded row-returning query, not only `COUNTROWS`.
+Snapshots record when Core metadata was observed, not when the capacity was
+originally created or last changed. `source_calendar_max` retains the source
+calendar label; it is not converted into an event instant or coverage guarantee.
 
 ## Tables
 
 | Table | Key | Meaning |
 | --- | --- | --- |
-| `dbo.capacity_collection_runs` | `run_id` | Running/Succeeded/Failed, query window, source identity, source-calendar maximum, observation counts and failure stage/type |
+| `dbo.capacity_collection_runs` | `run_id` | Running/Succeeded/Failed, UTC query window, source identity, source-calendar maximum, verified source offset, observation counts and failure stage/type |
 | `dbo.capacity_state_snapshots` | `snapshot_id` | Selected capacity's observed state and SKU, observation time and run linkage |
-| `dbo.capacity_system_events` | `event_id` | Raw state/reason/time/activation identity, nullable availability effect and first observation/run |
+| `dbo.capacity_system_events` | `event_id` | UTC event instant, raw source timestamp and offset, state/reason/activation identity, nullable availability effect and first observation/run |
 
 `event_id` hashes normalized capacity identity, UTC event time, state, reason
 and activation identity. Overlapping windows/reruns merge existing events without
 duplicating or overwriting their first observation. Each new run retains a new
 snapshot, including unchanged state/SKU.
+Missing provenance columns are added with an empty Delta schema-evolution
+append before merging, even for an empty event result. Existing observations
+are retained; legacy provenance remains null rather than being backfilled.
 
 Only `Active/Created`, `Active/ManuallyResumed`, `Suspended/ManuallyPaused`
 and `Deleted/Deleted` carry availability effects. Performance events, including
@@ -153,19 +173,36 @@ From the repository root:
 python -m unittest discover -s tests -v
 ```
 
-Six tests passed for replay/offset-stable event identity, lifecycle versus
+Regression tests passed for replay/offset-stable event identity, lifecycle versus
 performance effects, scope/limit validation, partial-response rejection,
-missing/duplicate capacities and bounded query construction.
+missing/duplicate capacities, lowercase native predicates, report-clock query
+bounds, fractional offsets and half-open UTC event windows.
 The live pilot verified Spark/REST/Delta integration. Pylance file validation
 could not resolve this sibling repository in its current workspace; Python test
 imports and the live notebook execution validated syntax/runtime instead.
 The saved SQL diagnostic also passed: all four result sets returned, all seven
-invariant checks had zero failures, and a successful snapshot was persisted.
+original invariant checks had zero failures, and a successful snapshot was
+persisted.
 `git diff --check` passed.
 Hourly automation was verified through a scheduler-origin job, schedule
 readback/owner checks and its additional persisted snapshot. SQL verification
 was interrupted while the capacity was inactive and resumed after reactivation;
 the hosting capacity was not resumed by this solution.
+
+Following the user's source refresh, the corrected collector was deployed
+without changing its parameter defaults, destination or hourly schedule.
+Its successful persisted run recovered lifecycle events with raw timestamp
+and verified offset provenance. Both source models' actual bounded row queries
+were compared against saved UTC event identities, not combined as separate
+events. Recovered pause/resume evidence was checked against independent Core
+snapshots around the collection gap. These checks do not certify exact SKU
+transitions, event-source completeness or billing availability.
+The SQL diagnostic now also checks source-offset ranges, paired event
+provenance and first-observation/run-window linkage.
+The corrected scheduler-origin execution subsequently completed; its overlapping
+window preserved event keys and original first-observation fields. All ten SQL
+history invariants passed. The existing single schedule remained enabled with
+the same owner, interval and expiry.
 
 The first observed snapshot is a prospective anchor only. It cannot reconstruct
 pre-observation availability, exact transitions between sampled SKUs or the

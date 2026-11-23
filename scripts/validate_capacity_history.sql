@@ -69,4 +69,25 @@ WHERE r.[status] = 'Succeeded'
     AND r.snapshot_count <> (
         SELECT COUNT_BIG(*) FROM dbo.capacity_state_snapshots s
         WHERE s.run_id = r.run_id
-    );
+    )
+UNION ALL
+SELECT 'invalid_run_source_offset', COUNT_BIG(*)
+FROM dbo.capacity_collection_runs
+WHERE source_utc_offset_minutes NOT BETWEEN -720 AND 840
+UNION ALL
+SELECT 'invalid_event_source_provenance', COUNT_BIG(*)
+FROM dbo.capacity_system_events
+WHERE (source_event_time IS NULL AND source_utc_offset_minutes IS NOT NULL)
+    OR (source_event_time IS NOT NULL AND source_utc_offset_minutes IS NULL)
+    OR source_utc_offset_minutes NOT BETWEEN -720 AND 840
+    OR (source_event_time IS NOT NULL
+        AND TRY_CONVERT(datetimeoffset, source_event_time) IS NULL)
+UNION ALL
+SELECT 'invalid_event_first_observation', COUNT_BIG(*)
+FROM dbo.capacity_system_events e
+LEFT JOIN dbo.capacity_collection_runs r ON e.first_observed_run_id = r.run_id
+WHERE r.run_id IS NULL OR e.capacity_id IS NULL OR e.capacity_id <> r.capacity_id
+    OR e.event_time IS NULL OR e.event_time < r.window_start
+    OR e.event_time >= r.window_end OR e.first_observed_at IS NULL
+    OR e.first_observed_at < r.started_at
+    OR (r.[status] = 'Succeeded' AND e.first_observed_at > r.completed_at);

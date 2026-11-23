@@ -1,9 +1,10 @@
 -- Read-only diagnostic against the Capacity Metrics source semantic model.
 -- Replace <CAPACITY_ID>, <YEAR>, <MONTH> and <DAY> locally before execution.
+-- The requested day is in the model's configured UTC_offset report clock, not necessarily UTC.
 -- Results describe tenant usage and must not be published.
 DEFINE
     MPARAMETER 'CapacitiesList' = {"<CAPACITY_ID>"}
-    VAR ScopedCapacity = "<CAPACITY_ID>"
+    VAR ScopedCapacity = LOWER("<CAPACITY_ID>")
     VAR ScopedDate = DATE(<YEAR>, <MONTH>, <DAY>)
     -- Dates filters measures; explicitly bound the calendar as well.
     VAR Grid =

@@ -19,6 +19,7 @@ history_window_days = 14
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 from uuid import UUID, uuid4
@@ -37,12 +38,34 @@ def required_text(value: object, field: str) -> str:
     return value.strip()
 
 
-def utc_time(value: object) -> datetime:
+def source_timezone(offset_minutes: int) -> timezone:
+    if type(offset_minutes) is not int or not -720 <= offset_minutes <= 840:
+        raise ValueError("Source UTC offset must be whole minutes between -12 and +14 hours")
+    return timezone(timedelta(minutes=offset_minutes))
+
+
+def utc_offset_minutes(value: object) -> int:
+    text = required_text(value, "UTC_offset")
+    try:
+        hours = Decimal(text)
+    except InvalidOperation as error:
+        raise ValueError("UTC_offset must be numeric") from error
+    if not hours.is_finite() or not Decimal(-12) <= hours <= Decimal(14):
+        raise ValueError("UTC_offset must be between -12 and +14 hours")
+    minutes = hours * 60
+    if not minutes.is_finite() or minutes != minutes.to_integral_value():
+        raise ValueError("UTC_offset must represent whole minutes")
+    offset = int(minutes)
+    source_timezone(offset)
+    return offset
+
+
+def utc_time(value: object, source_offset_minutes: int = 0) -> datetime:
+    zone = source_timezone(source_offset_minutes)
     text = required_text(value, "timestamp")
     parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    # executeQueries serializes source UTC timestamps without an offset.
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=zone)
     return parsed.astimezone(timezone.utc)
 
 
@@ -107,18 +130,26 @@ def dax_time(value: datetime) -> str:
     )
 
 
-def events_query(selected_id: str, start: datetime, end: datetime) -> str:
-    selected_id = canonical_id(selected_id)
+def events_query(
+    selected_id: str, start: datetime, end: datetime, source_offset_minutes: int = 0,
+) -> str:
+    selected_id = canonical_id(selected_id).lower()
     if start >= end:
         raise ValueError("Event query window must have positive duration")
+    if start.tzinfo is None or end.tzinfo is None:
+        raise ValueError("Event query boundaries must be timezone-aware")
+    zone = source_timezone(source_offset_minutes)
+    # DAX literals use report wall time, while the ledger retains UTC boundaries.
+    source_start = start.astimezone(zone).replace(tzinfo=timezone.utc)
+    source_end = end.astimezone(zone).replace(tzinfo=timezone.utc)
     return f"""
 DEFINE MPARAMETER 'CapacitiesList' = {{"{selected_id}"}}
 EVALUATE SELECTCOLUMNS(
     TOPN(10001,
         FILTER('System Events',
             'System Events'[Capacity Id] = "{selected_id}"
-            && 'System Events'[Capacity state transition time] >= {dax_time(start)}
-            && 'System Events'[Capacity state transition time] < {dax_time(end)}),
+            && 'System Events'[Capacity state transition time] >= {dax_time(source_start)}
+            && 'System Events'[Capacity state transition time] < {dax_time(source_end)}),
         'System Events'[Capacity state transition time], ASC),
     "CapacityId", 'System Events'[Capacity Id],
     "State", 'System Events'[Capacity state],
@@ -135,8 +166,10 @@ def normalize_events(
     end: datetime,
     run_id: str,
     observed_at: datetime,
+    source_offset_minutes: int = 0,
 ) -> list[dict[str, object]]:
     selected_id = canonical_id(selected_id)
+    source_timezone(source_offset_minutes)
     if len(rows) > 10000:
         raise ValueError("Event limit reached; completeness is not established")
     effects = {
@@ -148,7 +181,7 @@ def normalize_events(
     events: dict[str, dict[str, object]] = {}
     for row in rows:
         identifier = canonical_id(required_text(row.get("CapacityId"), "event capacity"))
-        event_time = utc_time(row.get("EventTime"))
+        event_time = utc_time(row.get("EventTime"), source_offset_minutes)
         if identifier != selected_id or not start <= event_time < end:
             raise ValueError("Event lies outside the requested capacity/window")
         state = required_text(row.get("State"), "event state")
@@ -171,6 +204,8 @@ def normalize_events(
             "availability_effect": effects.get((state, reason)),
             "first_observed_at": observed_at,
             "first_observed_run_id": run_id,
+            "source_event_time": required_text(row.get("EventTime"), "event timestamp"),
+            "source_utc_offset_minutes": source_offset_minutes,
         }
     return list(events.values())
 
@@ -211,6 +246,7 @@ def run_capacity_history(
         ("source_workspace_id", string), ("source_model_id", string),
         ("source_calendar_max", timestamp), ("snapshot_count", integer),
         ("event_count", integer), ("failure_stage", string), ("error_type", string),
+        ("source_utc_offset_minutes", integer),
     ])
     snapshot_schema = schema([
         ("snapshot_id", string), ("run_id", string), ("capacity_id", string),
@@ -221,6 +257,7 @@ def run_capacity_history(
         ("state", string), ("reason", string), ("activation_id", string),
         ("availability_effect", string), ("first_observed_at", timestamp),
         ("first_observed_run_id", string),
+        ("source_event_time", string), ("source_utc_offset_minutes", integer),
     ])
     run: dict[str, object] = {
         "run_id": run_id, "capacity_id": selected_id, "status": "Running",
@@ -229,6 +266,7 @@ def run_capacity_history(
         "source_workspace_id": source_workspace, "source_model_id": source_model,
         "source_calendar_max": None, "snapshot_count": 0, "event_count": 0,
         "failure_stage": None, "error_type": None,
+        "source_utc_offset_minutes": None,
     }
 
     def persist(
@@ -238,14 +276,19 @@ def run_capacity_history(
         data = spark.createDataFrame(rows, schema=table_schema)
         if not spark.catalog.tableExists(table):
             data.write.format("delta").mode("errorifexists").saveAsTable(table)
-        elif rows:
-            merge = (
-                DeltaTable.forName(spark, table).alias("t")
-                .merge(data.alias("s"), f"t.{key} = s.{key}")
-            )
-            if update:
-                merge = merge.whenMatchedUpdateAll()
-            merge.whenNotMatchedInsertAll().execute()
+        else:
+            if set(table_schema.fieldNames()) - set(spark.table(table).columns):
+                data.limit(0).write.format("delta").option("mergeSchema", "true").mode(
+                    "append"
+                ).saveAsTable(table)
+            if rows:
+                merge = (
+                    DeltaTable.forName(spark, table).alias("t")
+                    .merge(data.alias("s"), f"t.{key} = s.{key}")
+                )
+                if update:
+                    merge = merge.whenMatchedUpdateAll()
+                merge.whenNotMatchedInsertAll().execute()
 
     runs_table = "dbo.capacity_collection_runs"
     snapshots_table = "dbo.capacity_state_snapshots"
@@ -279,6 +322,20 @@ def run_capacity_history(
             f"https://api.powerbi.com/v1.0/myorg/groups/{source_workspace}"
             f"/datasets/{source_model}/executeQueries"
         )
+        stage = "source_parameters"
+        parameters_response = powerbi.get(endpoint.rsplit("/", 1)[0] + "/parameters")
+        parameters_response.raise_for_status()
+        parameters = parameters_response.json()
+        if not isinstance(parameters, dict) or not isinstance(parameters.get("value"), list):
+            raise ValueError("Invalid source model parameter response")
+        offsets = [
+            parameter.get("currentValue") for parameter in parameters["value"]
+            if isinstance(parameter, dict) and parameter.get("name") == "UTC_offset"
+        ]
+        if len(offsets) != 1:
+            raise ValueError("Source model must expose exactly one UTC_offset parameter")
+        source_offset = utc_offset_minutes(offsets[0])
+        run["source_utc_offset_minutes"] = source_offset
 
         def query(dax: str) -> list[dict[str, object]]:
             response = powerbi.post(
@@ -299,8 +356,9 @@ def run_capacity_history(
         run["source_calendar_max"] = utc_time(health[0].get("CalendarMax"))
         stage = "system_events"
         events = normalize_events(
-            query(events_query(selected_id, start, started)),
+            query(events_query(selected_id, start, started, source_offset)),
             selected_id, start, started, run_id, datetime.now(timezone.utc),
+            source_offset,
         )
         stage = "persist_history"
         snapshot = {

@@ -102,7 +102,7 @@ The general inventory includes the requested item types, including Variable
 Library. A stale Capacity Metrics source model blocked recent timepoint extraction.
 After the user refreshed it and approved a targeted timepoint notebook run, recent
 timepoints were verified in the Lakehouse SQL endpoint without duplicate keys.
-Timepoint coverage remains incomplete, history tables remain empty, and
+Timepoint coverage remains incomplete, FUAM's original history tables remain empty, and
 scanner-specific inventory tables remain empty. Source validation remains open;
 no billing percentage is approved from the current data.
 Read-only denominator probes confirmed sparse reported availability despite a
@@ -118,6 +118,14 @@ The collector now runs hourly in UTC with a bounded 90-day schedule and no
 automatic renewal. Its first scheduler-origin execution and additional snapshot
 were verified. Monitor schedule state after capacity pauses and track monitoring
 overhead separately from business activity.
+After a subsequent refresh of both source models, targeted extraction advanced
+both persisted FUAM metric sources after SQL metadata synchronization.
+The independent collector recovered lifecycle events using lowercase native
+UUID predicates and the verified source report-clock offset. Both models'
+actual bounded event queries matched saved UTC identities and provenance.
+An hourly replay preserved original event keys and first observations.
+The [capacity-history documentation](docs/capacity-history.md) describes these
+checks; they do not certify historical SKU changes or complete billing periods.
 There is not yet a deployed report or independent semantic model.
 Inventory relationship validation now confirms unique observed keys and stored
 metric/item/workspace matches while retaining items without metrics. Some

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from notebooks.collect_capacity_history import (
     decode_query_response, events_query, normalize_events, select_capacity,
+    utc_offset_minutes, utc_time,
 )
 
 
@@ -83,6 +84,33 @@ class CapacityHistoryTests(unittest.TestCase):
             events_query('invalid"} EVALUATE', self.start, self.end)
         with self.assertRaises(ValueError):
             events_query(self.capacity, self.start, self.start)
+
+    def test_native_event_query_uses_lowercase_ids_and_report_clock_boundaries(self):
+        query = events_query("AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", self.start, self.end, -300)
+        self.assertIn('Capacity Id] = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"', query)
+        self.assertIn(">= DATE(2025,12,31)+TIME(19,0,0)", query)
+        self.assertIn("< DATE(2026,1,1)+TIME(19,0,0)", query)
+
+    def test_report_offset_preserves_utc_identity_and_half_open_boundaries(self):
+        raw = self.event(EventTime="2026-01-01T07:00:00")
+        local = normalize_events(
+            [raw], self.capacity, self.start, self.end, "local", self.end, -300,
+        )[0]
+        utc = self.normalize([self.event()])[0]
+        self.assertEqual(local["event_id"], utc["event_id"])
+        self.assertEqual(local["event_time"], utc["event_time"])
+        self.assertEqual(local["source_event_time"], raw["EventTime"])
+        self.assertEqual(local["source_utc_offset_minutes"], -300)
+        self.assertEqual(utc_time("2026-01-01T12:00:00Z", -300), utc["event_time"])
+        with self.assertRaises(ValueError):
+            normalize_events(
+                [self.event(EventTime="2026-01-01T19:00:00")],
+                self.capacity, self.start, self.end, "end", self.end, -300,
+            )
+        self.assertEqual(utc_offset_minutes("5.5"), 330)
+        for value in ("missing", "NaN", "15", "-13", "0.0001"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                utc_offset_minutes(value)
 
 
 if __name__ == "__main__":
