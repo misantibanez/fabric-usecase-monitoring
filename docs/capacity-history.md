@@ -171,3 +171,43 @@ The first observed snapshot is a prospective anchor only. It cannot reconstruct
 pre-observation availability, exact transitions between sampled SKUs or the
 original creation time when the `Created` event is unavailable. Billing
 percentages remain blocked until those coverage requirements pass.
+
+## Denominator eligibility evidence
+
+Run [validate_capacity_eligibility.sql](../scripts/validate_capacity_eligibility.sql)
+against the monitoring SQL endpoint. Set a positive half-open UTC window
+explicitly, or use its default 14-calendar-day window ending after the latest
+stored FUAM item-operation date. Missing dates or non-positive windows raise an
+explicit SQL error rather than reporting a successful empty denominator.
+
+The single result set has 14 fields and includes capacities seen in metrics
+even when no history has been collected for them. It reports first/last successful
+observations, baseline observation count, observations in the window, the largest
+gap between adjacent snapshots intersecting the window, latest source calendar,
+successful event-query windows containing the period and raw lifecycle-event
+observations.
+
+A baseline count is point-in-time evidence, not proof of uninterrupted state.
+The reported snapshot gap is the full adjacent-observation separation, not
+measured downtime or certified active/inactive seconds. A query-window count
+does not prove model freshness, continuous event coverage or exact historical
+SKU. Raw events, including those first persisted in a failed capture, do not
+establish extraction completeness. Source calendar maxima are freshness evidence,
+not confirmation that every interval is represented.
+
+This diagnostic is deliberately **not an availability calculator**. With the
+current snapshot/raw-event contract, every row has
+`DenominatorStatus = Blocked_UnvalidatedLifecycleAndSKUIntervals`;
+`AvailableCUSeconds` and `BillingCapacityPercentage` remain null.
+There is no optimistic eligibility based on repeated Active/F-SKU snapshots,
+zero events, a populated calendar or an enabled hourly schedule.
+Future billing calculation requires a separately verified lifecycle/SKU interval
+contract, usage/numerator reconciliation and historical classification.
+
+Live validation checked the exact result shape for both the stored-metric window
+and the prospective observation window, preserved null denominator/percentage
+values and rejected a zero-duration window. It exposed missing history for a
+metric capacity, missing period-start observations, stale source calendar evidence
+and a substantial collection gap. Schedule readback was enabled, but does not
+erase earlier gaps. No schedule, capacity state or source-model configuration
+was changed. Tenant identities, dates, gap durations and counts remain private.

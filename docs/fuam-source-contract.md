@@ -200,6 +200,10 @@ classification capture preserves catalog and workspace observations, including
 explicit unclassified/ambiguous/missing-workspace states. This begins prospective
 classification history without modifying FUAM. It does not establish exact
 effective-change times or backfill historical item attribution.
+Domain ancestry is now snapshotted from stable `DomainId`/
+`OriginalParentDomainId` chains and inherited by workspace/items. Root/subdomain
+display names remain metadata, not keys. Source domain-parent reconciliation
+and hierarchy integrity checks passed without changing metric/CU conservation.
 The collector subsequently deployed normalized item observations inheriting the
 workspace capture and preserving no-metric/deleted inventory records. A
 [current-classification consumption preview](item-consumption-preview.md) now
@@ -287,6 +291,11 @@ now enabled with a bounded 90-day schedule; its first scheduler-origin run and
 additional snapshot were verified. This prospective history does not validate
 earlier billing periods. Schedule state and coverage gaps must be checked after
 capacity pauses/resumption.
+The new [denominator eligibility diagnostic](../scripts/validate_capacity_eligibility.sql)
+validated its expected shape and invalid-window guard while exposing gaps,
+source-calendar lag and metric capacities without history. Denominator and
+billing percentages remain unknown; an enabled schedule and repeated Active/SKU
+observations do not validate complete lifecycle/SKU intervals.
 
 ## Open correctness questions
 

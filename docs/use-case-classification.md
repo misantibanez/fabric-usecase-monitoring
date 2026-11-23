@@ -2,7 +2,7 @@
 
 The [classification notebook](../notebooks/classify_use_cases.py) writes to the
 independent monitoring Lakehouse, not FUAM. It reads FUAM's `tags`, `workspaces`,
-`workspace_tags` and `active_items` Delta tables. Run it manually with the source
+`workspace_tags`, `active_items` and `domains_flatten` Delta tables. Run it manually with the source
 workspace/Lakehouse IDs and the monitoring Lakehouse attached as the default.
 An hourly classification schedule has not been configured.
 
@@ -15,6 +15,7 @@ An hourly classification schedule has not been configured.
 | `dbo.workspace_use_case_snapshots` | One observation per workspace/run, including capacity/domain IDs, source metadata and classification. |
 | `dbo.use_case_catalog_snapshots` | Catalog copy associated with each completed capture. |
 | `dbo.item_use_case_snapshots` | One item per run, inheriting its workspace observation, with item type/lifecycle, separate item-capacity metadata and extraction timestamp. |
+| `dbo.domain_hierarchy_snapshots` | Per-run original domain/parent IDs and names with resolved root/subdomain/path evidence. |
 
 Only enabled entries referencing an existing Fabric **Domain-scope tag ID**
 participate. Domain-scoped tags are not identified by display-name equality or
@@ -33,8 +34,8 @@ FUAM deletion flags are retained as metadata, not used to erase observations.
 The normalized item inventory now inherits workspace classification in the same
 capture. It retains objects without metrics and marked-deleted records. Item
 tags do not override that inheritance, and metric kind names are not used as
-item identity. Domain/subdomain hierarchy enrichment and exact historical
-assignment remain subsequent steps.
+item identity. Domain/subdomain hierarchy is now captured and inherited by
+stable domain/parent IDs. Exact historical assignment remains a subsequent step.
 
 ## Maintaining the catalog
 
@@ -110,3 +111,32 @@ and did not capture items. The inventory view selects the latest successful run
 with a non-null inventory count, including a valid empty capture. The
 [item inventory and consumption-preview guide](item-consumption-preview.md)
 describes the deployed views, source-key checks and additional reconciliation.
+
+## Domain hierarchy
+
+Domain ancestry uses `DomainId` and `OriginalParentDomainId`; names are display
+metadata, not join keys. The collector does not trust flattened display-name
+matches or the synthetic "Without Subdomain" label as a domain identity.
+
+Workspace/item observations include `root_domain_id/name`, `subdomain_id/name`,
+`domain_path_ids`, `hierarchy_depth` and `domain_resolution_status`.
+The root is the ancestor with no parent. A root-assigned workspace has null
+subdomain fields and depth zero. A descendant's subdomain is its assigned leaf;
+the root-to-leaf UUID path preserves intermediate ancestors if present.
+The original workspace `domain_id` remains unchanged.
+
+`NoDomain`, `MissingWorkspace`, `DomainNotFound`, `ParentDomainNotFound` and
+`HierarchyCycle` distinguish absent/unresolvable hierarchy from a resolved root.
+No root or subdomain is inferred for unresolved chains. Duplicate domain IDs or
+invalid required source fields fail the capture explicitly.
+The domain catalog is snapshotted in the same run with `domain_snapshot_count`.
+Older captures have null new fields/counts and are not backfilled.
+The metric preview labels uncaptured hierarchy `NotCaptured` and failed item
+joins `ItemWorkspaceUnresolved`.
+
+Run [validate_domain_hierarchy.sql](../scripts/validate_domain_hierarchy.sql):
+three result sets report domain/item coverage and five integrity checks. The
+pilot passed all checks and exact source domain-ID/name/parent reconciliation.
+Synthetic tests cover identical names in different roots, inherited subdomains,
+root-only assignments, missing parents and cycles. Hierarchy enrichment did not
+change inventory cardinality or metric/CU conservation.

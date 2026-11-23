@@ -129,7 +129,7 @@ tag IDs are now approved for the pilot. An
 has successfully captured workspace and catalog observations in the monitoring
 Lakehouse. The team can add new cases by stable Fabric Domain tag ID without
 changing collector code. Classification is currently manual; domain/subdomain
-enrichment and exact historical assignments remain pending.
+ancestry is captured by stable parent IDs, while exact historical assignments remain pending.
 The [classification diagnostic](scripts/validate_use_case_classification.sql)
 checks the persisted catalog, run evidence and snapshot invariants.
 The [normalized item inventory and consumption preview](docs/item-consumption-preview.md)
@@ -140,6 +140,12 @@ and current use case without duplicating or dropping source rows. Every preview
 row is explicitly unvalidated for historical attribution; these are not billing
 percentages. Inventory identity/metadata and metric row/CU conservation passed
 live reconciliation.
+The [domain hierarchy diagnostic](scripts/validate_domain_hierarchy.sql) verifies
+captured root/subdomain/path evidence without joining by names.
+The [capacity eligibility diagnostic](scripts/validate_capacity_eligibility.sql)
+now exposes baseline, query-window, source-calendar and snapshot-gap evidence.
+It keeps available CU seconds and billing percentage unknown: prospective
+snapshots and empty event results do not prove complete lifecycle/SKU intervals.
 
 ## Upstream references
 

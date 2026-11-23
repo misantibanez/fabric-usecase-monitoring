@@ -2,7 +2,7 @@
 
 The [classification collector](../notebooks/classify_use_cases.py) now captures
 `dbo.item_use_case_snapshots` alongside workspace and catalog observations.
-The same successful run governs all three; failed/partial captures are excluded
+The same successful run governs these and domain hierarchy observations; failed/partial captures are excluded
 by the deployed inventory view. Collection is manual, not automatically hourly.
 
 Each FUAM `active_items` ID is retained exactly once per capture, including
@@ -17,6 +17,12 @@ capacity are inherited by workspace ID. Item-native tags are ignored.
 and missing values have explicit statuses. Missing FUAM workspaces remain
 unresolved, without inferring a domain, use case or workspace capacity.
 Environment and VariableLibrary remain distinct inventory types.
+Domain ancestry is also captured by stable parent IDs: root domain, assigned
+subdomain, UUID path/depth and explicit resolution status are inherited from
+the workspace. See [domain hierarchy semantics](use-case-classification.md#domain-hierarchy).
+The grouped preview retains root/subdomain IDs and names; a use case may appear
+in multiple workspace domain contexts, which must not be collapsed by choosing
+one display name. Historical hierarchy remains unvalidated just like attribution.
 
 ## SQL views
 
@@ -78,6 +84,6 @@ null sums must remain null. Local synthetic tests also cover missing/ambiguous
 classification, items without metrics, item-tag exclusion, duplicate source IDs
 and separate item/workspace capacity evidence.
 
-Remaining gates: reconcile missing workspace metadata, domain/subdomain hierarchy,
+Remaining gates: reconcile missing workspace metadata and historical domain changes,
 exact reassignment/deletion history, source freshness, numerator semantics and
 complete capacity availability. No report or billing percentage is deployed.

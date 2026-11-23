@@ -26,6 +26,15 @@ SELECT
     CASE WHEN i.workspace_id = UPPER(TRIM(m.WorkspaceId)) THEN i.use_case_id END AS use_case_id,
     CASE WHEN i.workspace_id = UPPER(TRIM(m.WorkspaceId)) THEN i.use_case_name END AS use_case_name,
     CASE WHEN i.workspace_id = UPPER(TRIM(m.WorkspaceId)) THEN i.domain_id END AS domain_id,
+    CASE WHEN i.workspace_id = UPPER(TRIM(m.WorkspaceId)) THEN i.root_domain_id END AS root_domain_id,
+    CASE WHEN i.workspace_id = UPPER(TRIM(m.WorkspaceId)) THEN i.root_domain_name END AS root_domain_name,
+    CASE WHEN i.workspace_id = UPPER(TRIM(m.WorkspaceId)) THEN i.subdomain_id END AS subdomain_id,
+    CASE WHEN i.workspace_id = UPPER(TRIM(m.WorkspaceId)) THEN i.subdomain_name END AS subdomain_name,
+    CASE WHEN i.workspace_id = UPPER(TRIM(m.WorkspaceId)) THEN i.domain_path_ids END AS domain_path_ids,
+    CASE WHEN i.workspace_id = UPPER(TRIM(m.WorkspaceId)) THEN i.hierarchy_depth END AS hierarchy_depth,
+    CASE WHEN i.workspace_id = UPPER(TRIM(m.WorkspaceId))
+         THEN COALESCE(i.domain_resolution_status, 'NotCaptured')
+         ELSE 'ItemWorkspaceUnresolved' END AS domain_resolution_status,
     CASE WHEN i.item_id IS NULL THEN 'MissingItem'
          WHEN NULLIF(TRIM(m.WorkspaceId), '') IS NULL THEN 'MetricWorkspaceMissing'
          WHEN i.workspace_id <> UPPER(TRIM(m.WorkspaceId)) THEN 'CurrentItemWorkspaceMismatch'
@@ -50,6 +59,8 @@ GO
 CREATE OR ALTER VIEW dbo.vw_use_case_consumption_preview AS
 SELECT
     metric_date, metric_capacity_id, use_case_id, use_case_name, domain_id,
+    root_domain_id, root_domain_name, subdomain_id, subdomain_name,
+    hierarchy_depth, domain_resolution_status,
     inventory_join_status, classification_status, capacity_comparison_status,
     attribution_basis, historical_attribution_status,
     COUNT_BIG(*) AS metric_row_count,
@@ -58,6 +69,8 @@ SELECT
     SUM(CASE WHEN source_total_cus IS NULL THEN 1 ELSE 0 END) AS missing_cu_value_count
 FROM dbo.vw_item_consumption_preview
 GROUP BY metric_date, metric_capacity_id, use_case_id, use_case_name, domain_id,
+    root_domain_id, root_domain_name, subdomain_id, subdomain_name,
+    hierarchy_depth, domain_resolution_status,
     inventory_join_status, classification_status, capacity_comparison_status,
     attribution_basis, historical_attribution_status;
 GO

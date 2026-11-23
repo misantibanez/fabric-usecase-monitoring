@@ -90,6 +90,68 @@ def classify_workspace(
     }
 
 
+def build_domain_index(
+    rows: list[dict[str, object]],
+) -> dict[str, tuple[str, str | None]]:
+    domains: dict[str, tuple[str, str | None]] = {}
+    for row in rows:
+        key = identifier(row["DomainId"])
+        name = row["OriginalDomainName"]
+        parent = row["OriginalParentDomainId"]
+        if key in domains:
+            raise ValueError("Duplicate source domain ID")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Source domain name is required")
+        parent_id = (
+            None if parent is None or (isinstance(parent, str) and not parent.strip())
+            else identifier(parent)
+        )
+        domains[key] = (name, parent_id)
+    return domains
+
+
+def resolve_domain(
+    domain_id: str | None, domains: dict[str, tuple[str, str | None]],
+    workspace_exists: bool = True,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "root_domain_id": None, "root_domain_name": None,
+        "subdomain_id": None, "subdomain_name": None,
+        "domain_path_ids": None, "hierarchy_depth": None,
+        "domain_resolution_status": "MissingWorkspace",
+    }
+    if not workspace_exists:
+        return result
+    if domain_id is None:
+        result["domain_resolution_status"] = "NoDomain"
+        return result
+    key = identifier(domain_id)
+    chain: list[str] = []
+    seen: set[str] = set()
+    current: str | None = key
+    while current is not None:
+        if current in seen:
+            result["domain_resolution_status"] = "HierarchyCycle"
+            return result
+        if current not in domains:
+            result["domain_resolution_status"] = (
+                "DomainNotFound" if not chain else "ParentDomainNotFound"
+            )
+            return result
+        seen.add(current)
+        chain.append(current)
+        current = domains[current][1]
+    root = chain[-1]
+    result.update(
+        root_domain_id=root, root_domain_name=domains[root][0],
+        subdomain_id=key if len(chain) > 1 else None,
+        subdomain_name=domains[key][0] if len(chain) > 1 else None,
+        domain_path_ids=json.dumps(list(reversed(chain))),
+        hierarchy_depth=len(chain) - 1, domain_resolution_status="Resolved",
+    )
+    return result
+
+
 def inherit_item_inventory(
     items: list[dict[str, object]], snapshots: list[dict[str, object]],
 ) -> list[dict[str, object]]:
@@ -161,6 +223,15 @@ def collect_classification(
         StructField("tag_id", string, False),
         StructField("is_enabled", BooleanType(), False),
     ])
+    hierarchy_fields = [
+        StructField("root_domain_id", string, True),
+        StructField("root_domain_name", string, True),
+        StructField("subdomain_id", string, True),
+        StructField("subdomain_name", string, True),
+        StructField("domain_path_ids", string, True),
+        StructField("hierarchy_depth", IntegerType(), True),
+        StructField("domain_resolution_status", string, False),
+    ]
     snapshot_schema = StructType([
         StructField("run_id", string, False),
         StructField("observed_at", timestamp, False),
@@ -173,7 +244,7 @@ def collect_classification(
         StructField("matched_case_count", IntegerType(), False),
         StructField("use_case_id", string, True),
         StructField("use_case_name", string, True),
-    ])
+    ] + hierarchy_fields)
     run_schema = StructType([
         StructField("run_id", string, False),
         StructField("started_at", timestamp, False),
@@ -182,11 +253,12 @@ def collect_classification(
         StructField("error_type", string, True),
         StructField("error_message", string, True),
         StructField("inventory_snapshot_count", IntegerType(), True),
+        StructField("domain_snapshot_count", IntegerType(), True),
     ])
     run = {
         "run_id": run_id, "started_at": observed, "completed_at": None,
         "status": "Running", "error_type": None, "error_message": None,
-        "inventory_snapshot_count": None,
+        "inventory_snapshot_count": None, "domain_snapshot_count": None,
     }
     runs_table = "dbo.classification_runs"
     catalog_table = "dbo.use_cases"
@@ -235,6 +307,32 @@ def collect_classification(
         enabled = {
             str(case["tag_id"]): case for case in catalog if case["is_enabled"]
         }
+        domains = build_domain_index([
+            row.asDict()
+            for row in spark.read.format("delta").load(root + "/domains_flatten").select(
+                "DomainId", "OriginalDomainName", "OriginalParentDomainId",
+            ).collect()
+        ])
+        domain_schema = StructType([
+            StructField("run_id", string, False),
+            StructField("observed_at", timestamp, False),
+            StructField("domain_id", string, False),
+            StructField("domain_name", string, False),
+            StructField("parent_domain_id", string, True),
+        ] + hierarchy_fields)
+        domain_snapshots = [
+            {
+                "run_id": run_id, "observed_at": observed, "domain_id": key,
+                "domain_name": name, "parent_domain_id": parent,
+                **resolve_domain(key, domains),
+            }
+            for key, (name, parent) in sorted(domains.items())
+        ]
+        domain_table = "dbo.domain_hierarchy_snapshots"
+        run["domain_snapshot_count"] = len(domain_snapshots)
+        spark.createDataFrame(domain_snapshots, domain_schema).write.format("delta").mode(
+            "append"
+        ).saveAsTable(domain_table)
         workspaces: dict[str, dict[str, object]] = {}
         for row in spark.read.format("delta").load(root + "/workspaces").select(
             "WorkspaceId", "CapacityId", "DomainId", "fuam_deleted", "fuam_modified_at"
@@ -268,13 +366,15 @@ def collect_classification(
                     return None
                 return identifier(value)
 
+            domain_id = optional_id("DomainId")
             snapshots.append({
                 "run_id": run_id, "observed_at": observed, "workspace_id": key,
                 "capacity_id": optional_id("CapacityId"),
-                "domain_id": optional_id("DomainId"),
+                "domain_id": domain_id,
                 "workspace_deleted_flag": workspace["fuam_deleted"] if workspace else None,
                 "source_modified_at": workspace["fuam_modified_at"] if workspace else None,
                 **classify_workspace(workspace is not None, associations.get(key, []), enabled),
+                **resolve_domain(domain_id, domains, workspace is not None),
             })
         items = inherit_item_inventory(inventory, snapshots)
         item_schema = StructType(snapshot_schema.fields + [
@@ -289,11 +389,15 @@ def collect_classification(
         ])
         item_table = "dbo.item_use_case_snapshots"
         run["inventory_snapshot_count"] = len(items)
-        spark.createDataFrame(items, item_schema).write.format("delta").mode(
+        spark.createDataFrame(items, item_schema).write.format("delta").option(
+            "mergeSchema", "true"
+        ).mode(
             "append"
         ).saveAsTable(item_table)
         data = spark.createDataFrame(snapshots, snapshot_schema)
-        data.write.format("delta").mode("append").saveAsTable(snapshot_table)
+        data.write.format("delta").option("mergeSchema", "true").mode("append").saveAsTable(
+            snapshot_table
+        )
         from pyspark.sql import functions as f
 
         spark.createDataFrame(catalog, catalog_schema).withColumn(
@@ -305,6 +409,8 @@ def collect_classification(
             raise RuntimeError("Persisted workspace classification count mismatch")
         if spark.table(item_table).where(f.col("run_id") == run_id).count() != len(items):
             raise RuntimeError("Persisted item inventory count mismatch")
+        if spark.table(domain_table).where(f.col("run_id") == run_id).count() != len(domains):
+            raise RuntimeError("Persisted domain hierarchy count mismatch")
         finalize("Succeeded")
         print(f"Classification captured. Run ID: {run_id}. Workspace observations: {len(snapshots)}")
     except Exception as error:

@@ -2,7 +2,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from notebooks.classify_use_cases import (
-    classify_workspace, collect_classification, inherit_item_inventory, validate_catalog,
+    build_domain_index, classify_workspace, collect_classification,
+    inherit_item_inventory, resolve_domain, validate_catalog,
 )
 
 
@@ -143,6 +144,49 @@ class UseCaseClassificationTests(unittest.TestCase):
             inherit_item_inventory([self.item(), self.item()], [self.workspace()])
         with self.assertRaisesRegex(ValueError, "no classification observation"):
             inherit_item_inventory([self.item()], [])
+
+    def test_domain_resolution_uses_parent_ids_even_when_names_collide(self):
+        domains = build_domain_index([
+            {"DomainId": self.first, "OriginalDomainName": "Same name",
+             "OriginalParentDomainId": None},
+            {"DomainId": self.second, "OriginalDomainName": "Same name",
+             "OriginalParentDomainId": ""},
+            {"DomainId": self.tag, "OriginalDomainName": "Subdomain",
+             "OriginalParentDomainId": self.first},
+            {"DomainId": self.other, "OriginalDomainName": "Subdomain",
+             "OriginalParentDomainId": self.second},
+        ])
+        root = resolve_domain(self.first, domains)
+        self.assertEqual(root["hierarchy_depth"], 0)
+        self.assertIsNone(root["subdomain_id"])
+        leaf = resolve_domain(self.tag, domains)
+        self.assertEqual(leaf["root_domain_id"], self.first)
+        self.assertEqual(leaf["subdomain_id"], self.tag.upper())
+        self.assertEqual(leaf["domain_path_ids"], '["' + self.first + '", "' + self.tag.upper() + '"]')
+        self.assertNotEqual(leaf["root_domain_id"], resolve_domain(self.other, domains)["root_domain_id"])
+        inherited = inherit_item_inventory(
+            [self.item()], [{**self.workspace(), **leaf}],
+        )
+        self.assertEqual(inherited[0]["root_domain_id"], leaf["root_domain_id"])
+        self.assertEqual(inherited[0]["subdomain_id"], leaf["subdomain_id"])
+
+    def test_domain_gaps_and_cycles_do_not_infer_a_root(self):
+        domains = {self.tag.upper(): ("Example", self.first)}
+        for domain, exists, status in (
+            (None, True, "NoDomain"), (None, False, "MissingWorkspace"),
+            (self.other, True, "DomainNotFound"),
+            (self.tag, True, "ParentDomainNotFound"),
+        ):
+            result = resolve_domain(domain, domains, exists)
+            self.assertEqual(result["domain_resolution_status"], status)
+            self.assertIsNone(result["root_domain_id"])
+        domains[self.first] = ("Cycle", self.tag.upper())
+        self.assertEqual(resolve_domain(self.tag, domains)["domain_resolution_status"], "HierarchyCycle")
+        with self.assertRaisesRegex(ValueError, "Duplicate source domain"):
+            build_domain_index([
+                {"DomainId": self.first, "OriginalDomainName": "First", "OriginalParentDomainId": None},
+                {"DomainId": self.first, "OriginalDomainName": "Other", "OriginalParentDomainId": None},
+            ])
 
 
 if __name__ == "__main__":
