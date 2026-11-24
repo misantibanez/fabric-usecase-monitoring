@@ -72,6 +72,24 @@ def validate_config(config: dict, current_workspace: str) -> dict:
         if not isinstance(result.get(field, []), list):
             raise ValueError(f"{field} must be a list")
         result[field] = result.get(field, [])
+    policies = result.get("daily_policies", [])
+    if not isinstance(policies, list):
+        raise ValueError("daily_policies must be a list")
+    result["daily_policies"] = []
+    policy_capacities = set()
+    for policy in policies:
+        if not isinstance(policy, dict) or set(policy) != {"capacity_id", "sku", "source_utc_offset_minutes"}:
+            raise ValueError("Daily policies require capacity_id, sku and source_utc_offset_minutes")
+        entry = {**policy, "capacity_id": uuid_text(policy["capacity_id"])}
+        offset = entry["source_utc_offset_minutes"]
+        if entry["sku"] != "F8" or type(offset) is not int or not -720 <= offset <= 840:
+            raise ValueError("Daily policies require explicitly assumed F8 active 24h and a valid integer source offset")
+        if entry["capacity_id"] in policy_capacities:
+            raise ValueError("Duplicate daily capacity policy")
+        policy_capacities.add(entry["capacity_id"])
+        result["daily_policies"].append(entry)
+    if policies and (policy_capacities != seen or result["initial_estimates"]):
+        raise ValueError("Daily mode requires exactly one policy per monitored capacity and initial_estimates=[]")
     if result.get("connection_id"):
         result["connection_id"] = uuid_text(result["connection_id"])
     else:
@@ -238,6 +256,8 @@ class Installer:
         self.spark, self.fs, self.connect_sql = spark, fs, connect_sql
         self.workspace = config["workspace_id"]
         identity = {key: config[key] for key in ("workspace_id", "source_workspace_id", "source_lakehouse_name", "prefix", "metric_sources")}
+        if config["daily_policies"]:
+            identity["daily_policies"] = config["daily_policies"]
         self.owner = MARKER + ":" + hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:24]
         self.package = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
         self.state = {"owner": self.owner, "package": self.package, "pending": {}, "done": [], "items": {}}
@@ -360,6 +380,9 @@ class Installer:
         while time.monotonic() < deadline:
             result = self.api.get(f"/workspaces/{self.workspace}/lakehouses/{lakehouse['id']}")
             endpoint = result["properties"]["sqlEndpointProperties"]
+            if endpoint is None:
+                self.api.sleep(10)
+                continue
             if endpoint["provisioningStatus"] == "Success":
                 return endpoint
             if endpoint["provisioningStatus"] == "Failed":
@@ -481,7 +504,7 @@ class Installer:
             self.api.sleep(5)
 
     def validate_sql(self, endpoint: dict, database: str) -> None:
-        source = "dbo." + METRIC_SHORTCUT
+        source = "dbo." + ("monitoring_daily_metrics" if self.config["daily_policies"] else METRIC_SHORTCUT)
         query = f"""
         SELECT
           (SELECT COUNT_BIG(*) FROM {source}) SourceRows,
@@ -504,6 +527,24 @@ class Installer:
             raise RuntimeError("FUAM source has no consumption; installation cannot claim a real-data result")
         self.state["validated_metric_rows"] = results[0][0]["SourceRows"]
         self.state["validated_inventory_items"] = results[2][0]["InventoryItems"]
+        if self.config["daily_policies"]:
+            daily = self.sql(endpoint, database, """
+                SELECT COUNT_BIG(*) AS CoverageDays,
+                    SUM(CASE WHEN source_status='MissingSourceDay' THEN 1 ELSE 0 END) AS MissingSourceDays,
+                    SUM(CASE WHEN in_rolling_window=1 THEN 1 ELSE 0 END) AS RollingDays,
+                    SUM(CASE WHEN in_rolling_window=1 AND source_status='MissingSourceDay' THEN 1 ELSE 0 END) AS RollingMissingSourceDays,
+                    SUM(CASE WHEN estimate_status<>'ScenarioReady' OR scenario_available_cus IS NULL THEN 1 ELSE 0 END) AS InvalidAssumptions
+                FROM dbo.vw_monitoring_daily_coverage;
+                SELECT COUNT_BIG(*) AS InvalidKeys FROM (
+                    SELECT capacity_id,metric_date FROM dbo.monitoring_daily_periods
+                    GROUP BY capacity_id,metric_date HAVING COUNT_BIG(*)<>1
+                ) d;
+            """)
+            coverage = daily[0][0]
+            if (coverage["RollingDays"] != 30 * len(self.config["daily_policies"])
+                    or coverage["InvalidAssumptions"] != 0 or daily[1][0]["InvalidKeys"] != 0):
+                raise RuntimeError("Daily calendar, uniqueness or explicit availability policy validation failed")
+            self.state["daily_coverage"] = coverage
         self.save()
 
     def validate_model(self, model_id: str) -> None:
@@ -522,6 +563,16 @@ class Installer:
             raise RuntimeError("The refreshed model has no actual consumption/inventory")
         if health[0]["[MetricRows]"] != self.state["validated_metric_rows"] or health[0]["[Inventory]"] != self.state["validated_inventory_items"]:
             raise RuntimeError("Imported model counts do not match validated SQL sources; check concurrent FUAM changes")
+        if self.config["daily_policies"]:
+            check = self.api.execute_query(self.workspace, model_id,
+                'EVALUATE ROW("Missing",[Missing Source Days],"RollingMissing",'
+                'CALCULATE([Missing Source Days],\'Date\'[In Rolling Window]=1),'
+                '"RollingRatio",CALCULATE([Estimated Capacity Usage],\'Date\'[In Rolling Window]=1))')
+            expected = self.state["daily_coverage"]
+            if (len(check) != 1 or check[0]["[Missing]"] != expected["MissingSourceDays"]
+                    or check[0]["[RollingMissing]"] != expected["RollingMissingSourceDays"]
+                    or (expected["RollingMissingSourceDays"] > 0 and check[0]["[RollingRatio]"] is not None)):
+                raise RuntimeError("Daily model does not preserve missing-source-day coverage/blank period percentages")
 
     def run(self, build_model, build_report) -> dict:
         source_workspace = self.config["source_workspace_id"]
@@ -548,6 +599,12 @@ class Installer:
                 f'TREATAS({{"{entry["capacity_id"].upper()}"}},\'Capacities\'[Capacity Id])))')
             if len(health) != 1 or health[0].get("[CapacityMatches]") != 1:
                 raise RuntimeError("Capacity Metrics model does not uniquely contain its configured capacity")
+            if self.config["daily_policies"]:
+                parameters = self.api.get(f"{POWERBI}/groups/{entry['workspace_id']}/datasets/{entry['model_id']}/parameters")
+                offsets = [row["currentValue"] for row in parameters["value"] if row["name"] == "UTC_offset"]
+                policy = next(row for row in self.config["daily_policies"] if row["capacity_id"] == entry["capacity_id"])
+                if len(offsets) != 1 or float(offsets[0]) * 60 != policy["source_utc_offset_minutes"]:
+                    raise RuntimeError("Daily policy offset does not match the Capacity Metrics UTC_offset parameter")
         prefix = self.config["prefix"]
         lakehouse = self.item(prefix + "_Lakehouse", "Lakehouse", "lakehouses",
                               {"creationPayload": {"enableSchemas": True}})
@@ -599,34 +656,52 @@ class Installer:
             item = self.item(prefix + "_" + suffix, "Notebook", "notebooks",
                              {"definition": definition({"notebook-content.ipynb": json.dumps(doc)}, "ipynb")})
             children.append((suffix.lower(), item["id"]))
+        daily = bool(self.config["daily_policies"])
+        if daily:
+            doc = notebook_document(self.files["notebooks/collect_daily_monitoring.py"], self.workspace, lakehouse, {
+                "source_metrics_path": root + "/capacity_metrics_by_item_by_operation_by_day",
+                "daily_policies_json": json.dumps(self.config["daily_policies"]),
+            })
+            item = self.item(prefix + "_Daily", "Notebook", "notebooks",
+                             {"definition": definition({"notebook-content.ipynb": json.dumps(doc)}, "ipynb")})
+            children.append(("daily", item["id"]))
         for key, notebook_id in children:
             self.checkpoint(key, lambda key=key, notebook_id=notebook_id: self.job(key, notebook_id))
         self.sync(endpoint)
         tables = self.sql(endpoint, database, "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='dbo'")[0]
-        if set(MONITORING_TABLES) - {row["TABLE_NAME"] for row in tables}:
+        required_tables = MONITORING_TABLES + (
+            ["monitoring_daily_metrics", "monitoring_daily_periods", "monitoring_daily_state"] if daily else []
+        )
+        if set(required_tables) - {row["TABLE_NAME"] for row in tables}:
             raise RuntimeError("SQL metadata is missing monitoring tables; rerun after synchronization")
         def views():
-            for filename in ("create_consumption_preview_views.sql", "create_capacity_scenario_views.sql"):
+            filenames = ["create_consumption_preview_views.sql", "create_capacity_scenario_views.sql"]
+            if daily:
+                filenames.append("create_daily_monitoring_views.sql")
+            for filename in filenames:
                 sql = self.files["scripts/" + filename].replace(
                     "FUAM_Lakehouse.dbo.capacity_metrics_by_item_by_operation_by_day",
-                    "dbo." + METRIC_SHORTCUT,
+                    "dbo." + ("monitoring_daily_metrics" if daily else METRIC_SHORTCUT),
                 )
                 self.sql(endpoint, database, sql)
         self.checkpoint("views", views)
         self.validate_sql(endpoint, database)
+        model_parts = build_model(endpoint["connectionString"], database, daily=True) if daily else build_model(endpoint["connectionString"], database)
         model = self.item(prefix + "_SM", "SemanticModel", "semanticModels",
-                          {"definition": definition(build_model(endpoint["connectionString"], database))})
+                          {"definition": definition(model_parts)})
         self.state["model_id"] = model["id"]
         self.save()
         focus_date = self.state.get("focus_date") or self.config["focus_date"]
         if not focus_date:
             rows = self.sql(endpoint, database,
-                            "SELECT MAX(CAST(metric_date AS date)) AS FocusDate FROM dbo.vw_use_case_capacity_estimate")[0]
+                            "SELECT MAX(CAST(metric_date AS date)) AS FocusDate FROM "
+                            + ("dbo.monitoring_daily_periods" if daily else "dbo.vw_use_case_capacity_estimate"))[0]
             focus_date = rows[0]["FocusDate"].isoformat()
         self.state["focus_date"] = focus_date
         self.save()
+        report_parts = build_report(model["id"], focus_date, daily=True) if daily else build_report(model["id"], focus_date)
         report = self.item(prefix + "_Report", "Report", "reports",
-                           {"definition": definition(build_report(model["id"], focus_date), "PBIR")})
+                           {"definition": definition(report_parts, "PBIR")})
         self.state["report_url"] = f"https://app.powerbi.com/groups/{self.workspace}/reports/{report['id']}/Estimated"
         self.save()
         print("Report created (not ready until successful refresh): " + self.state["report_url"])

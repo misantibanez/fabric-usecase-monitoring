@@ -40,6 +40,29 @@ class MonitoringDefinitionTests(unittest.TestCase):
         relationships = model["definition/relationships.tmdl"]
         self.assertNotIn("relationship 'Availability Classification'", relationships)
 
+    def test_daily_model_uses_expected_calendar_and_blocks_partial_period_percentages(self):
+        model = build_model("synthetic.example", "SyntheticDatabase", daily=True)
+        self.assertIn("dbo.vw_monitoring_daily_coverage", model["definition/tables/Availability.tmdl"])
+        self.assertIn('="MissingSourceDay"', model["definition/tables/Availability.tmdl"])
+        self.assertIn("IF([Missing Source Days]>0,BLANK(),", model["definition/tables/Consumption.tmdl"])
+        calendar = model["definition/tables/Date.tmdl"]
+        self.assertIn("MIN(first_day)", calendar)
+        self.assertIn("MAX(window_end_day)", calendar)
+        self.assertIn("Date.AddDays(Last,-30)", calendar)
+        report = build_report("11111111-1111-1111-1111-111111111111", "2026-01-01", daily=True)
+        page = json.loads(report["definition/pages/Estimated/page.json"])
+        rule = page["filterConfig"]["filters"][0]
+        self.assertEqual(rule["field"]["Column"]["Property"], "In Rolling Window")
+        self.assertNotIn("2026-01-01", json.dumps(rule))
+        for path, text in report.items():
+            if not path.endswith("/visual.json"):
+                continue
+            for role in json.loads(text)["visual"]["query"]["queryState"].values():
+                for projection in role["projections"]:
+                    kind, reference = next(iter(projection["field"].items()))
+                    table = reference["Expression"]["SourceRef"]["Entity"]
+                    declaration = "measure" if kind == "Measure" else "column"
+                    self.assertIn(f"{declaration} '{reference['Property']}'", model[f"definition/tables/{table}.tmdl"])
 
 if __name__ == "__main__":
     unittest.main()

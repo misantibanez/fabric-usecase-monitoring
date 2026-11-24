@@ -14,7 +14,7 @@ def field(table: str, name: str, measure: bool = False) -> dict:
     }}
 
 
-def build_report(model_id: str, focus_date: str) -> dict[str, str]:
+def build_report(model_id: str, focus_date: str, daily: bool = False) -> dict[str, str]:
     date.fromisoformat(focus_date)
     objects: dict[str, dict] = {
         "definition.pbir": {
@@ -56,6 +56,13 @@ def build_report(model_id: str, focus_date: str) -> dict[str, str]:
                         "Values": [[{"Literal": {"Value": "datetime'" + focus_date + "T00:00:00'"}}]],
                     }}}]},
             }]}
+            if daily:
+                rule = value["filterConfig"]["filters"][0]
+                rule["name"] = "Rolling30Days"
+                rule["field"] = field("Date", "In Rolling Window")
+                condition = rule["filter"]["Where"][0]["Condition"]["In"]
+                condition["Expressions"][0]["Column"]["Property"] = "In Rolling Window"
+                condition["Values"] = [[{"Literal": {"Value": "1L"}}]]
         objects[f"definition/pages/{name}/page.json"] = value
 
     def visual(page_name: str, name: str, visual_type: str, title: str,
@@ -87,13 +94,17 @@ def build_report(model_id: str, focus_date: str) -> dict[str, str]:
 
     page("Estimated", "01 Consumo estimado - NO APTO PARA COBRO", True)
     warning("Estimated")
-    for index, (title, table, measure) in enumerate([
+    cards = [
         ("CU-segundos reales", "Consumption", "Observed CU Seconds"),
         ("CU-segundos disponibles asumidos", "Availability", "Assumed Available CU Seconds"),
         ("% capacidad estimado", "Consumption", "Estimated Capacity Usage"),
         ("Dias/capacidad sin supuestos", "Availability", "Missing Availability Days"),
-    ]):
-        visual("Estimated", "EstimatedCard" + str(index), "card", title, 20 + 350 * index, 105, 335, 120,
+    ]
+    if daily:
+        cards.append(("Dias/capacidad sin datos fuente", "Availability", "Missing Source Days"))
+    card_width = 1400 // len(cards)
+    for index, (title, table, measure) in enumerate(cards):
+        visual("Estimated", "EstimatedCard" + str(index), "card", title, 20 + card_width * index, 105, card_width - 15, 120,
                {"Values": [(table, measure, True)]})
     for index, (table, column) in enumerate([
         ("Capacity", "Capacity"), ("Classification", "Use Case"),
@@ -112,6 +123,8 @@ def build_report(model_id: str, focus_date: str) -> dict[str, str]:
            ]})
     visual("Estimated", "SelectedDate", "slicer", "Dia del reporte (cambiar filtro ReportDay en panel Filtros)", 20, 665, 680, 115,
            {"Values": [("Date", "Report Date", False)]})
+    if daily:
+        objects["definition/pages/Estimated/visuals/SelectedDate/visual.json"]["visual"]["visualContainerObjects"]["title"][0]["properties"]["text"]["expr"]["Literal"]["Value"] = "'Ultimos 30 dias completos al ultimo procesamiento; filtrar fechas dentro del rango'"
     visual("Estimated", "RefreshTimestamp", "tableEx", "Ultima importacion UTC", 20, 795, 680, 80,
            {"Values": [("Refresh", "Refresh UTC", False)]})
 
@@ -158,6 +171,17 @@ def build_report(model_id: str, focus_date: str) -> dict[str, str]:
                ("Availability", "Assumed Available CU Seconds", True),
                ("Availability", "Missing Availability Days", True),
            ]})
+    if daily:
+        visual("Assumptions", "DailyCoverage", "tableEx", "Cobertura FUAM por dia; filas presentes no certifican integridad", 20, 105, 1400, 340,
+               {"Values": [
+                   ("Capacity", "Capacity", False), ("Date", "Report Date", False),
+                   ("Availability", "Source Coverage", False),
+                   ("Availability", "Last Source Check UTC", False),
+                   ("Availability", "Missing Source Days", True),
+                   ("Availability", "Source Days With Rows", True),
+               ]})
+        position = objects["definition/pages/Assumptions/visuals/AssumptionsDays/visual.json"]["position"]
+        position.update(y=460, height=415)
     return {path: json.dumps(value, ensure_ascii=True) for path, value in objects.items()}
 
 

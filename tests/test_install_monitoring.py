@@ -32,6 +32,19 @@ class InstallerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_config({**CONFIG, "prefix": "unsafe]; DROP VIEW dbo.x--"}, WS)
 
+    def test_daily_policy_requires_exact_monitored_capacity_and_no_seed_conflict(self):
+        policy = {"capacity_id": MODEL, "sku": "F8", "source_utc_offset_minutes": -240}
+        config = validate_config({**CONFIG, "daily_policies": [policy]}, WS)
+        self.assertEqual(config["daily_policies"], [policy])
+        for changes in (
+            {"daily_policies": [{**policy, "capacity_id": WS}]},
+            {"daily_policies": [policy, policy]},
+            {"daily_policies": [policy], "initial_estimates": [{}]},
+            {"daily_policies": [{**policy, "sku": "F64"}]},
+        ):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                validate_config({**CONFIG, **changes}, WS)
+
     def test_package_is_self_contained_and_preserves_parameter_cells(self):
         document = build_install_notebook()
         namespace = {"__name__": "installed_package"}
@@ -52,6 +65,13 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(child["cells"][0]["metadata"]["tags"], ["parameters"])
         for cell in child["cells"]:
             compile("".join(cell["source"]), "collector-cell", "exec")
+        daily = notebook_document(
+            namespace["PACKAGE_FILES"]["notebooks/collect_daily_monitoring.py"],
+            WS, {"id": MODEL, "displayName": "Synthetic"},
+            {"source_metrics_path": "synthetic", "daily_policies_json": "[]"},
+        )
+        for cell in daily["cells"]:
+            compile("".join(cell["source"]), "daily-cell", "exec")
         encoded = definition({"notebook-content.ipynb": json.dumps(child)}, "ipynb")
         self.assertEqual(json.loads(base64.b64decode(encoded["parts"][0]["payload"])), child)
 
@@ -95,6 +115,16 @@ class InstallerTests(unittest.TestCase):
         ]
         self.assertEqual(installer.item("Synthetic", "Lakehouse", "lakehouses", {})["id"], MODEL)
         self.assertEqual(installer.api.request.call_count, 1)
+
+    def test_new_lakehouse_waits_for_sql_endpoint_metadata(self):
+        installer = self.installer()
+        endpoint = {"id": MODEL, "provisioningStatus": "Success", "connectionString": "synthetic"}
+        installer.api.get.side_effect = [
+            {"properties": {"sqlEndpointProperties": None}},
+            {"properties": {"sqlEndpointProperties": endpoint}},
+        ]
+        self.assertEqual(installer.metadata({"id": MODEL}), endpoint)
+        installer.api.sleep.assert_called_once_with(10)
 
     def test_pending_creation_and_job_follow_receipts_without_new_submission(self):
         installer = self.installer()

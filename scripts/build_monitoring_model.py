@@ -13,7 +13,7 @@ def classification_key(alias: str = "") -> str:
     ) + ")"
 
 
-def build_model(server: str, database: str) -> dict[str, str]:
+def build_model(server: str, database: str, daily: bool = False) -> dict[str, str]:
     key = classification_key()
     estimate = "dbo.vw_use_case_capacity_estimate"
     inventory = "dbo.vw_latest_item_use_case_inventory"
@@ -110,6 +110,28 @@ def build_model(server: str, database: str) -> dict[str, str]:
             ("Demo Warning", '"DEMO SINTETICA - NO APTO PARA COBRO"', "@", "Synthetic data is isolated from tenant consumption."),
         ],
     }
+    if daily:
+        queries["Capacity"] += " UNION SELECT capacity_id FROM dbo.monitoring_daily_periods"
+        queries["Availability"] = "SELECT * FROM dbo.vw_monitoring_daily_coverage"
+        columns["Availability"] += [
+            ("Source Coverage", "source_status", "string", False),
+            ("Source Metric Rows", "metric_rows", "int64", True),
+            ("Last Source Check UTC", "processed_at", "dateTime", False),
+        ]
+        columns["Date"].append(("In Rolling Window", "In Rolling Window", "int64", False))
+        measures["Availability"] += [
+            ("Missing Source Days",
+             "IF(COUNTROWS('Availability')>0,COALESCE(COUNTROWS(FILTER('Availability','Availability'[Source Coverage]=\"MissingSourceDay\")),0),BLANK())",
+             "#,##0", "Capacity/report days with no archived source rows; unknown consumption, never zero."),
+            ("Source Days With Rows",
+             "IF(COUNTROWS('Availability')>0,COALESCE(COUNTROWS(FILTER('Availability',NOT(ISBLANK('Availability'[Source Metric Rows])))),0),BLANK())",
+             "#,##0", "Days containing source rows; presence of rows does not certify complete telemetry."),
+        ]
+        measures["Consumption"] = [
+            (name, "IF([Missing Source Days]>0,BLANK()," + expression + ")", fmt, description)
+            if name == "Estimated Capacity Usage" else (name, expression, fmt, description)
+            for name, expression, fmt, description in measures["Consumption"]
+        ]
     parts = {
         "definition.pbism": json.dumps({"version": "4.2", "settings": {"qnaEnabled": False}}),
         "definition/database.tmdl": "database\n\tcompatibilityLevel: 1702\n",
@@ -133,6 +155,8 @@ def build_model(server: str, database: str) -> dict[str, str]:
             lines += [""]
         if table == "Date":
             sql = f"SELECT CAST(MIN(metric_date) AS date) AS first_date,CAST(MAX(metric_date) AS date) AS last_date FROM {estimate}"
+            if daily:
+                sql = "SELECT MIN(first_day) AS first_date,MAX(window_end_day) AS last_date FROM dbo.monitoring_daily_state"
             m = (
                 'let Bounds=Sql.Database(Server,Database,[Query="' + sql + '"]), '
                 'First=Date.From(Bounds{0}[first_date]), Last=Date.From(Bounds{0}[last_date]), '
@@ -142,6 +166,12 @@ def build_model(server: str, database: str) -> dict[str, str]:
                 'Years=Table.AddColumn(Typed,"Year",each Date.Year([Report Date]),Int64.Type), '
                 'Months=Table.AddColumn(Years,"Month",each Date.Month([Report Date]),Int64.Type) in Months'
             )
+            if daily:
+                m = m.removesuffix(" in Months") + (
+                    ', Rolling=Table.AddColumn(Months,"In Rolling Window",'
+                    'each if Date.From([Report Date])>Date.AddDays(Last,-30) '
+                    'and Date.From([Report Date])<=Last then 1 else 0,Int64.Type) in Rolling'
+                )
         else:
             sql = " ".join(queries[table].split())
             m = 'Sql.Database(Server, Database, [Query="' + sql.replace('"', '""') + '", CreateNavigationProperties=false])'

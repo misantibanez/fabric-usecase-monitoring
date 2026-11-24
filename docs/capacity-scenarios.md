@@ -24,6 +24,10 @@ The notebook creates five separate tables only when absent:
 
 Existing tables are preserved, including team edits. Running again does not
 replace seeds, reset assumptions or extend an estimate to newer days.
+For explicitly approved automatic F8 daily assumptions, use the installer's
+[daily mode](installation.md#initial-30-days-then-d-1-and-catch-up) instead of
+manually extending `initial_estimates`. This optional collector adds stable
+daily periods and coverage without changing this initializer's seed-only behavior.
 Creation across tables is not transactional: inspect all five tables after
 failure, and verify the complete sources before deploying/reporting.
 No new schedule is created.

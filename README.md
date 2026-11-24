@@ -83,6 +83,11 @@ For customer deployment over existing FUAM/Capacity Metrics, use the
 packaged notebook into the destination workspace and Run all after setting its
 parameters. Monitoring resources are created automatically; organizational
 permissions and an authorized SQL connection remain external prerequisites.
+For an initial 30-complete-day load followed by D-1/catch-up, enable the optional
+[daily mode](docs/installation.md#initial-30-days-then-d-1-and-catch-up). It
+archives available FUAM rows, reports missing source dates, and maintains an
+explicitly assumed F8-active-24h denominator. Later runs use `operation="refresh"`
+on the same installation. No daily manual JSON or automatic schedule is required.
 
 1. Validate FUAM sources, permissions and temporal coverage.
 2. Define use-case classification and historical assignment.

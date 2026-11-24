@@ -11,8 +11,10 @@ PACKAGE_PATHS = (
     "notebooks/classify_use_cases.py",
     "notebooks/collect_capacity_history.py",
     "notebooks/initialize_capacity_scenarios.py",
+    "notebooks/collect_daily_monitoring.py",
     "scripts/create_consumption_preview_views.sql",
     "scripts/create_capacity_scenario_views.sql",
+    "scripts/create_daily_monitoring_views.sql",
     "scripts/validate_monitoring_model.dax",
 )
 PARAMETERS = '''# Run interactively in the destination workspace. No Lakehouse attachment required.
@@ -30,6 +32,12 @@ metric_sources = [
 initial_use_cases = []
 # Optional explicitly approved availability assumptions; separate from use-case classification.
 initial_estimates = []
+# Optional automatic 30-day backfill, then D-1/catch-up; leave [] for legacy mode.
+# Explicit assumption ONLY, one policy per monitored capacity:
+# [{"capacity_id": metric_sources[0]["capacity_id"], "sku": "F8",
+#   "source_utc_offset_minutes": -240}]
+# Requires initial_estimates=[]; missing source dates remain unknown, not zero.
+daily_policies = []
 sql_connection_id = ""  # Optional when exactly one matching authorized connection exists.
 focus_date = ""  # Defaults to the latest stored metric day; percentages may be blank.
 operation = "install"  # "refresh" reruns collectors and refreshes the Import model.
@@ -53,6 +61,7 @@ def build_install_notebook(root: Path = ROOT) -> dict:
     "metric_sources": metric_sources,
     "initial_use_cases": initial_use_cases,
     "initial_estimates": initial_estimates,
+    "daily_policies": daily_policies,
     "connection_id": sql_connection_id,
     "focus_date": focus_date,
     "operation": operation,
