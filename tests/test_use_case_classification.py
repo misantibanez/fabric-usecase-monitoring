@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from notebooks.classify_use_cases import (
@@ -62,6 +63,96 @@ class UseCaseClassificationTests(unittest.TestCase):
         self.assertNotEqual(old["use_case_id"], new["use_case_id"])
         self.assertEqual(old["use_case_id"], self.first)
         self.assertEqual(classify_workspace(True, [self.tag], enabled), old)
+
+    def test_deleted_workspace_with_missing_tag_remains_explicitly_unassigned(self):
+        enabled = self.enabled()
+        result = classify_workspace(
+            True, [self.tag, self.first, self.first], enabled,
+            known_tag_ids={self.tag.upper(), self.other.upper()}, workspace_deleted=True,
+        )
+        self.assertEqual(result["classification_status"], "DeletedWorkspaceMissingTag")
+        self.assertEqual(result["matched_case_count"], 0)
+        self.assertIsNone(result["use_case_id"])
+        self.assertIsNone(result["use_case_name"])
+        inherited = inherit_item_inventory(
+            [self.item()], [{**self.workspace(), **result, "workspace_deleted_flag": True}],
+        )
+        self.assertEqual(len(inherited), 1)
+        self.assertEqual(inherited[0]["classification_status"], "DeletedWorkspaceMissingTag")
+        self.assertTrue(inherited[0]["workspace_deleted_flag"])
+        self.assertIsNone(inherited[0]["use_case_id"])
+        self.assertEqual(
+            classify_workspace(
+                True, [self.tag], enabled, known_tag_ids={self.tag.upper()},
+                workspace_deleted=True,
+            )["classification_status"],
+            "Assigned",
+        )
+
+    def test_missing_tag_still_fails_without_confirmed_workspace_deletion(self):
+        for exists, deleted in ((True, False), (True, None), (False, None)):
+            with self.subTest(exists=exists, deleted=deleted), self.assertRaisesRegex(
+                ValueError, "Workspace association references a missing tag",
+            ):
+                classify_workspace(
+                    exists, [self.first], self.enabled(), known_tag_ids={self.tag.upper()},
+                    workspace_deleted=deleted,
+                )
+
+    def test_collector_retains_deleted_workspace_inventory_and_warns_on_missing_tag(self):
+        class Row(dict):
+            def asDict(self):
+                return dict(self)
+
+        source = {
+            "tags": [Row(tagId=self.tag, scope="Domain")],
+            "domains_flatten": [],
+            "workspaces": [Row(
+                WorkspaceId=self.tag, CapacityId=self.other, DomainId=None,
+                fuam_deleted=True, fuam_modified_at=None,
+            )],
+            "workspace_tags": [Row(WorkspaceId=self.tag, tagId=self.first)],
+            "active_items": [Row(self.item())],
+        }
+        spark = Mock()
+        spark.catalog.tableExists.return_value = True
+        spark.table.return_value.collect.return_value = [Row(self.cases()[0])]
+
+        def source_frame(path):
+            frame = Mock()
+            frame.select.return_value.collect.return_value = source[path.rsplit("/", 1)[-1]]
+            return frame
+
+        spark.read.format.return_value.load.side_effect = source_frame
+        writer = Mock()
+        for method in ("format", "option", "mode"):
+            getattr(writer, method).return_value = writer
+
+        def stop_at_inventory(table):
+            if table == "dbo.item_use_case_snapshots":
+                raise RuntimeError("Stop at inventory write")
+
+        writer.saveAsTable.side_effect = stop_at_inventory
+        spark.createDataFrame.return_value.write = writer
+        utilities, types = Mock(), Mock()
+        utilities.conf.get.return_value = "abfss://example@onelake.dfs.fabric.microsoft.com/"
+        types.StructType.side_effect = lambda fields: SimpleNamespace(fields=fields)
+        modules = {"notebookutils": utilities, "pyspark.sql.types": types, "delta.tables": Mock()}
+        with patch.dict("sys.modules", modules), patch("builtins.print") as output:
+            with self.assertRaisesRegex(RuntimeError, "Stop at inventory write"):
+                collect_classification(spark, self.first, self.second, "[]")
+        items = [
+            row for call in spark.createDataFrame.call_args_list for row in call.args[0]
+            if "item_id" in row
+        ]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["classification_status"], "DeletedWorkspaceMissingTag")
+        self.assertTrue(items[0]["workspace_deleted_flag"])
+        self.assertIsNone(items[0]["use_case_id"])
+        self.assertTrue(any(
+            self.tag.upper() in call.args[0] and self.first in call.args[0]
+            for call in output.call_args_list
+        ))
 
     def test_invalid_catalog_fails_instead_of_silently_unclassifying(self):
         for change in (
@@ -203,7 +294,7 @@ class UseCaseClassificationTests(unittest.TestCase):
         self.assertEqual(snapshots[0], before)
 
     def test_inventory_preserves_unresolved_states_and_capacity_mismatch(self):
-        for status in ("Unclassified", "Ambiguous", "MissingWorkspace"):
+        for status in ("Unclassified", "Ambiguous", "MissingWorkspace", "DeletedWorkspaceMissingTag"):
             workspace = self.workspace(status=status)
             if status == "MissingWorkspace":
                 workspace["capacity_id"] = None

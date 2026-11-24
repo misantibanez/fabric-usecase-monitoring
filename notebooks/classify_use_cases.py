@@ -107,7 +107,23 @@ def classify_workspace(
     workspace_exists: bool,
     tag_ids: list[str],
     enabled_cases: dict[str, dict[str, object]],
+    *,
+    known_tag_ids: set[str] | None = None,
+    workspace_deleted: bool | None = None,
 ) -> dict[str, object]:
+    missing_tags = (
+        {identifier(value) for value in tag_ids} - known_tag_ids
+        if known_tag_ids is not None else set()
+    )
+    if missing_tags:
+        if not workspace_exists or workspace_deleted is not True:
+            raise ValueError(
+                "Workspace association references a missing tag: " + ", ".join(sorted(missing_tags))
+            )
+        return {
+            "classification_status": "DeletedWorkspaceMissingTag", "matched_case_count": 0,
+            "use_case_id": None, "use_case_name": None,
+        }
     if not workspace_exists:
         return {
             "classification_status": "MissingWorkspace", "matched_case_count": 0,
@@ -396,8 +412,6 @@ def collect_classification(
             "WorkspaceId", "tagId"
         ).collect():
             key, tag = identifier(row["WorkspaceId"]), identifier(row["tagId"])
-            if tag not in tags:
-                raise ValueError("Workspace association references a missing tag")
             associations.setdefault(key, []).append(tag)
         inventory = [
             row.asDict()
@@ -408,6 +422,7 @@ def collect_classification(
         ]
         inventory_keys = {identifier(row["workspaceId"]) for row in inventory}
         snapshots: list[dict[str, object]] = []
+        known_tag_ids = set(tags)
         for key in sorted(set(workspaces) | inventory_keys | set(associations)):
             workspace = workspaces.get(key)
             def optional_id(field: str) -> str | None:
@@ -417,13 +432,24 @@ def collect_classification(
                 return identifier(value)
 
             domain_id = optional_id("DomainId")
+            tag_ids = associations.get(key, [])
+            deleted = workspace["fuam_deleted"] if workspace else None
+            classification = classify_workspace(
+                workspace is not None, tag_ids, enabled,
+                known_tag_ids=known_tag_ids, workspace_deleted=deleted,
+            )
+            if classification["classification_status"] == "DeletedWorkspaceMissingTag":
+                print(
+                    f"WARNING: deleted workspace {key} has missing tag IDs "
+                    f"{sorted(set(tag_ids) - known_tag_ids)}; retained without use-case attribution."
+                )
             snapshots.append({
                 "run_id": run_id, "observed_at": observed, "workspace_id": key,
                 "capacity_id": optional_id("CapacityId"),
                 "domain_id": domain_id,
-                "workspace_deleted_flag": workspace["fuam_deleted"] if workspace else None,
+                "workspace_deleted_flag": deleted,
                 "source_modified_at": workspace["fuam_modified_at"] if workspace else None,
-                **classify_workspace(workspace is not None, associations.get(key, []), enabled),
+                **classification,
                 **resolve_domain(domain_id, domains, workspace is not None),
             })
         items = inherit_item_inventory(inventory, snapshots)

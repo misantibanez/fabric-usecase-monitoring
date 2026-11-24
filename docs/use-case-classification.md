@@ -32,6 +32,14 @@ Use-case IDs must also be unique; invalid catalogs fail explicitly.
 - More than one: `Ambiguous`, with no assigned use-case ID.
 - Workspace referenced by items/tags but absent from FUAM workspace metadata:
   `MissingWorkspace`, with no inferred assignment, capacity or domain.
+- Workspace explicitly marked `fuam_deleted=true` whose associations reference
+  tags absent from FUAM's current tag catalog: `DeletedWorkspaceMissingTag`.
+  The workspace and its inventory remain captured, with zero matched cases and
+  no use-case assignment, even if another associated tag still resolves.
+  Notebook warnings identify the workspace and missing tag IDs. Missing tags on
+  active workspaces, unknown deletion flags or absent workspace metadata still
+  fail the capture. Existing enabled catalog entries must still reference valid
+  Domain tags; this exception does not bypass catalog validation.
 
 Repeated/descriptive tags cannot multiply workspace rows. Workspace observations
 include inventory-only references and workspaces with no observed consumption.
@@ -112,6 +120,14 @@ observations. Earlier attempts failed reading the source Delta log with a Spark
 403. Using lowercase canonical source resource IDs resolved the observed Spark
 read without changing permissions. Matching/classification IDs remain normalized
 independently. Detailed failure messages are now persisted in the run ledger.
+An older collector can fail with `Workspace association references a missing
+tag` when FUAM retains deleted workspaces and their old tag associations.
+Do not delete those source records or recreate obsolete tags. The corrected
+collector applies the explicit unresolved state above. Updating an installed
+package is not automatic: use the corrected installer with a new prefix for
+an isolated installation, or perform a separately reviewed targeted repair.
+Do not replace an installed package or its child definitions and edit ownership
+markers/resume state merely to bypass package checks.
 OneLake and SQL schema visibility can lag; check OneLake before concluding a
 failed run made no writes or before deciding to reseed.
 If tables are present in OneLake but missing/stale in SQL, the documented

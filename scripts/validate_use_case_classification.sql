@@ -68,7 +68,9 @@ UNION ALL
 SELECT 'invalid_classification_states', COUNT_BIG(*)
 FROM dbo.workspace_use_case_snapshots
 WHERE classification_status IS NULL OR matched_case_count IS NULL
-    OR classification_status NOT IN ('Assigned', 'Unclassified', 'Ambiguous', 'MissingWorkspace')
+    OR classification_status NOT IN (
+        'Assigned', 'Unclassified', 'Ambiguous', 'MissingWorkspace', 'DeletedWorkspaceMissingTag'
+    )
     OR (classification_status = 'Assigned' AND (
         matched_case_count <> 1 OR use_case_id IS NULL OR use_case_name IS NULL
     ))
@@ -76,7 +78,11 @@ WHERE classification_status IS NULL OR matched_case_count IS NULL
         use_case_id IS NOT NULL OR use_case_name IS NOT NULL
     ))
     OR (classification_status = 'Ambiguous' AND matched_case_count < 2)
-    OR (classification_status IN ('Unclassified', 'MissingWorkspace') AND matched_case_count <> 0)
+    OR (classification_status IN (
+        'Unclassified', 'MissingWorkspace', 'DeletedWorkspaceMissingTag'
+    ) AND matched_case_count <> 0)
+    OR (classification_status = 'DeletedWorkspaceMissingTag'
+        AND (workspace_deleted_flag IS NULL OR workspace_deleted_flag <> 1))
 UNION ALL
 SELECT 'unresolved_workspace_metadata', COUNT_BIG(*)
 FROM dbo.workspace_use_case_snapshots
